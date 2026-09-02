@@ -1,18 +1,19 @@
 ﻿{
   "name": "FinTrack Personal",
   "short_name": "FinTrack",
-  "description": "Aplikasi manajemen keuangan pribadi",
+  "description": "Aplikasi manajemen keuangan pribadi offline-first",
   "start_url": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
+      "src": "/icon.svg",
+      "sizes": "512x512 192x192 any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }

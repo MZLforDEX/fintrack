@@ -20,6 +20,14 @@ export const metadata: Metadata = {
   title: "FinTrack Personal",
   description: "Aplikasi manajemen keuangan pribadi",
   manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+    apple: [
+      { url: "/icon.svg", sizes: "180x180", type: "image/svg+xml" },
+    ],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
