@@ -33,33 +33,93 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
       if (!userId) return;
 
+      // Get all pending operations from syncQueue to prevent resurrecting deleted items
+      const allPendingQueue = await db.syncQueue.toArray();
+      const pendingDeletes = new Set(
+        allPendingQueue.filter(q => q.operation === 'DELETE').map(q => `${q.table}:${q.payload?.id}`)
+      );
+      const pendingInserts = new Set(
+        allPendingQueue.filter(q => q.operation === 'INSERT').map(q => `${q.table}:${q.payload?.id}`)
+      );
+
       // Pull Categories
       const { data: categories } = await supabase.from('categories').select('*');
-      if (categories) await db.categories.bulkPut(categories);
+      if (categories) {
+        const validCategories = categories.filter((c: any) => !pendingDeletes.has(`categories:${c.id}`));
+        const serverCatIds = new Set(validCategories.map((c: any) => c.id));
+        const localCats = await db.categories.toArray();
+        for (const lcat of localCats) {
+          if (!serverCatIds.has(lcat.id) && !pendingInserts.has(`categories:${lcat.id}`) && !lcat.id.startsWith('cat-')) {
+            await db.categories.delete(lcat.id);
+          }
+        }
+        if (validCategories.length > 0) {
+          await db.categories.bulkPut(validCategories);
+        }
+      }
 
       // Pull Transactions
       const { data: transactions } = await supabase.from('transactions').select('*, categories(name)');
       if (transactions) {
-        const formattedTxs = transactions.map((tx: any) => ({
-          ...tx,
-          category_name: tx.categories?.name
-        }));
-        await db.transactions.bulkPut(formattedTxs);
+        const formattedTxs = transactions
+          .filter((tx: any) => !pendingDeletes.has(`transactions:${tx.id}`))
+          .map((tx: any) => ({
+            ...tx,
+            category_name: tx.categories?.name
+          }));
+        
+        const serverTxIds = new Set(formattedTxs.map((tx: any) => tx.id));
+        const localTxs = await db.transactions.toArray();
+        for (const ltx of localTxs) {
+          if (!serverTxIds.has(ltx.id) && !pendingInserts.has(`transactions:${ltx.id}`)) {
+            await db.transactions.delete(ltx.id);
+          }
+        }
+
+        if (formattedTxs.length > 0) {
+          await db.transactions.bulkPut(formattedTxs);
+        }
       }
 
       // Pull Budgets
       const { data: budgets } = await supabase.from('budgets').select('*, categories(name)');
       if (budgets) {
-        const formattedBudgets = budgets.map((b: any) => ({
-          ...b,
-          category_name: b.categories?.name
-        }));
-        await db.budgets.bulkPut(formattedBudgets);
+        const formattedBudgets = budgets
+          .filter((b: any) => !pendingDeletes.has(`budgets:${b.id}`))
+          .map((b: any) => ({
+            ...b,
+            category_name: b.categories?.name
+          }));
+        
+        const serverBudgetIds = new Set(formattedBudgets.map((b: any) => b.id));
+        const localBudgets = await db.budgets.toArray();
+        for (const lb of localBudgets) {
+          if (!serverBudgetIds.has(lb.id) && !pendingInserts.has(`budgets:${lb.id}`)) {
+            await db.budgets.delete(lb.id);
+          }
+        }
+
+        if (formattedBudgets.length > 0) {
+          await db.budgets.bulkPut(formattedBudgets);
+        }
       }
 
       // Pull Goals
       const { data: goals } = await supabase.from('financial_goals').select('*');
-      if (goals) await db.goals.bulkPut(goals);
+      if (goals) {
+        const validGoals = goals.filter((g: any) => !pendingDeletes.has(`financial_goals:${g.id}`));
+        const serverGoalIds = new Set(validGoals.map((g: any) => g.id));
+        const localGoals = await db.goals.toArray();
+        for (const lg of localGoals) {
+          if (!serverGoalIds.has(lg.id) && !pendingInserts.has(`financial_goals:${lg.id}`)) {
+            await db.goals.delete(lg.id);
+          }
+        }
+
+        if (validGoals.length > 0) {
+          await db.goals.bulkPut(validGoals);
+        }
+      }
 
     } catch (error) {
       console.error("Error pulling data:", error);

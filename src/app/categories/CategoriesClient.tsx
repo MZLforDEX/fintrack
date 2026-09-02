@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, Category, seedDefaultCategories, DEFAULT_CATEGORIES } from "@/lib/db";
+import { createClient } from "@/lib/supabase/client";
 import { 
   Plus, 
   Tags, 
@@ -127,6 +128,26 @@ export default function CategoriesClient() {
   const handleDelete = async (id: string, catName: string) => {
     try {
       await db.categories.delete(id);
+
+      const pendingItems = await db.syncQueue.toArray();
+      for (const item of pendingItems) {
+        if (item.table === 'categories' && item.payload?.id === id) {
+          await db.syncQueue.delete(item.id!);
+        }
+      }
+
+      await db.syncQueue.add({
+        operation: 'DELETE',
+        table: 'categories',
+        payload: { id },
+        created_at: new Date().toISOString()
+      });
+
+      try {
+        const supabase = createClient();
+        await supabase.from('categories').delete().eq('id', id);
+      } catch {}
+
       toast.success(`Kategori "${catName}" berhasil dihapus.`);
     } catch (err) {
       toast.error("Gagal menghapus kategori.");
