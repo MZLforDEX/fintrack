@@ -14,6 +14,7 @@ import {
   RotateCcw, 
   Wallet, 
   Target, 
+  Tags,
   ChevronRight,
   PackagePlus
 } from 'lucide-react';
@@ -164,12 +165,31 @@ export default function MoreClient() {
       <div>
         <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Menu Lainnya</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Akses fitur anggaran, target tabungan, dan kelola master data barcode barang.
+          Akses fitur kategori keuangan, anggaran, target tabungan, dan kelola master data barcode barang.
         </p>
       </div>
 
-      {/* Quick Navigation Cards for Budget & Goals */}
-      <div className="grid gap-4 sm:grid-cols-2">
+      {/* Quick Navigation Cards for Categories, Budget & Goals */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Link href="/categories" className="block group">
+          <Card className="hover:shadow-md hover:border-primary/50 transition-all cursor-pointer h-full">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 group-hover:bg-purple-500 group-hover:text-white transition-colors">
+                  <Tags className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-base sm:text-lg">Kategori</CardTitle>
+                  <CardDescription className="text-xs">
+                    Kelola jenis pemasukan & pengeluaran
+                  </CardDescription>
+                </div>
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-purple-500 group-hover:translate-x-1 transition-all" />
+            </CardHeader>
+          </Card>
+        </Link>
+
         <Link href="/budgets" className="block group">
           <Card className="hover:shadow-md hover:border-primary/50 transition-all cursor-pointer h-full">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -179,8 +199,8 @@ export default function MoreClient() {
                 </div>
                 <div>
                   <CardTitle className="text-base sm:text-lg">Budget Bulanan</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm">
-                    Atur limit pengeluaran per kategori setiap bulan
+                  <CardDescription className="text-xs">
+                    Atur limit pengeluaran per kategori
                   </CardDescription>
                 </div>
               </div>
@@ -198,8 +218,8 @@ export default function MoreClient() {
                 </div>
                 <div>
                   <CardTitle className="text-base sm:text-lg">Financial Goals</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm">
-                    Pantau target tabungan & impian finansial Anda
+                  <CardDescription className="text-xs">
+                    Pantau target tabungan & impian
                   </CardDescription>
                 </div>
               </div>

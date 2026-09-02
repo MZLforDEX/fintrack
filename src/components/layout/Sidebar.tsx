@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { 
   LayoutDashboard, 
   Receipt, 
-  Tags, 
+  CalendarDays, 
   PieChart, 
   MoreHorizontal,
   CreditCard
@@ -18,7 +18,7 @@ export function Sidebar() {
   const navItems = [
     { title: "Dashboard", href: "/", icon: LayoutDashboard },
     { title: "Transaksi", href: "/transactions", icon: Receipt },
-    { title: "Kategori", href: "/categories", icon: Tags },
+    { title: "Kalender", href: "/calendar", icon: CalendarDays },
     { title: "Analytics", href: "/analytics", icon: PieChart },
     { title: "Lainnya", href: "/more", icon: MoreHorizontal },
   ];
