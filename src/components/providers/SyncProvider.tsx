@@ -40,6 +40,7 @@ interface SyncContextType {
   isOnline: boolean;
   pendingCount: number;
   syncNow: () => Promise<void>;
+  forcePushLocalToCloud: () => Promise<void>;
 }
 
 const SyncContext = createContext<SyncContextType>({
@@ -47,6 +48,7 @@ const SyncContext = createContext<SyncContextType>({
   isOnline: true,
   pendingCount: 0,
   syncNow: async () => {},
+  forcePushLocalToCloud: async () => {},
 });
 
 export const useSync = () => useContext(SyncContext);
@@ -103,7 +105,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // 1. Pull Server Data to Local IndexedDB
+  // 1. Pull Server Data to Local IndexedDB (LOCAL-WINS STRATEGY)
   const pullData = async () => {
     if (!navigator.onLine) return;
 
@@ -118,27 +120,29 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         allPendingQueue.filter(q => q.operation === 'INSERT').map(q => `${q.table}:${q.payload?.id}`)
       );
 
-      // A. Pull Categories
+      // A. Pull Categories (Merge with local)
       const { data: categories } = await supabase.from('categories').select('*');
       if (categories && categories.length > 0) {
         const validCategories = categories.filter((c: any) => !pendingDeletes.has(`categories:${c.id}`));
-        const serverCatIds = new Set(validCategories.map((c: any) => c.id));
         const localCats = await db.categories.toArray();
-        for (const lcat of localCats) {
-          if (!serverCatIds.has(lcat.id) && !pendingInserts.has(`categories:${lcat.id}`) && !lcat.id.startsWith('cat-')) {
-            await db.categories.delete(lcat.id);
-          }
-        }
-        if (validCategories.length > 0) {
-          await db.categories.bulkPut(validCategories);
+        const localCatIds = new Set(localCats.map(c => c.id));
+        
+        // Add only newly discovered categories from cloud
+        const newCatsToInsert = validCategories.filter((c: any) => !localCatIds.has(c.id));
+        if (newCatsToInsert.length > 0) {
+          await db.categories.bulkPut(newCatsToInsert);
         }
       }
 
-      // B. Pull Transactions
+      // B. Pull Transactions (Local data is authority)
       const { data: transactions } = await supabase.from('transactions').select('*, categories(name)');
       if (transactions && transactions.length > 0) {
-        const formattedTxs = transactions
-          .filter((tx: any) => !pendingDeletes.has(`transactions:${tx.id}`))
+        const localTxs = await db.transactions.toArray();
+        const localTxIds = new Set(localTxs.map(tx => tx.id));
+
+        // Insert new transactions from cloud that do NOT exist locally and were not deleted locally
+        const newTxsFromCloud = transactions
+          .filter((tx: any) => !localTxIds.has(tx.id) && !pendingDeletes.has(`transactions:${tx.id}`))
           .map((tx: any) => {
             const rawCatName = tx.categories?.name;
             const safeCatName = (tx.type === 'Expense' && rawCatName === 'Beasiswa') 
@@ -150,57 +154,38 @@ export function SyncProvider({ children }: { children: ReactNode }) {
               category_name: safeCatName
             };
           });
-        
-        const serverTxIds = new Set(formattedTxs.map((tx: any) => tx.id));
-        const localTxs = await db.transactions.toArray();
-        for (const ltx of localTxs) {
-          if (!serverTxIds.has(ltx.id) && !pendingInserts.has(`transactions:${ltx.id}`)) {
-            await db.transactions.delete(ltx.id);
-          }
-        }
 
-        if (formattedTxs.length > 0) {
-          await db.transactions.bulkPut(formattedTxs);
+        if (newTxsFromCloud.length > 0) {
+          await db.transactions.bulkPut(newTxsFromCloud);
         }
       }
 
       // C. Pull Budgets
       const { data: budgets } = await supabase.from('budgets').select('*, categories(name)');
       if (budgets && budgets.length > 0) {
-        const formattedBudgets = budgets
-          .filter((b: any) => !pendingDeletes.has(`budgets:${b.id}`))
+        const localBudgets = await db.budgets.toArray();
+        const localBudgetIds = new Set(localBudgets.map(b => b.id));
+        const newBudgets = budgets
+          .filter((b: any) => !localBudgetIds.has(b.id) && !pendingDeletes.has(`budgets:${b.id}`))
           .map((b: any) => ({
             ...b,
             category_name: b.categories?.name || 'Lainnya'
           }));
-        
-        const serverBudgetIds = new Set(formattedBudgets.map((b: any) => b.id));
-        const localBudgets = await db.budgets.toArray();
-        for (const lb of localBudgets) {
-          if (!serverBudgetIds.has(lb.id) && !pendingInserts.has(`budgets:${lb.id}`)) {
-            await db.budgets.delete(lb.id);
-          }
-        }
 
-        if (formattedBudgets.length > 0) {
-          await db.budgets.bulkPut(formattedBudgets);
+        if (newBudgets.length > 0) {
+          await db.budgets.bulkPut(newBudgets);
         }
       }
 
       // D. Pull Financial Goals
       const { data: goals } = await supabase.from('financial_goals').select('*');
       if (goals && goals.length > 0) {
-        const validGoals = goals.filter((g: any) => !pendingDeletes.has(`financial_goals:${g.id}`));
-        const serverGoalIds = new Set(validGoals.map((g: any) => g.id));
         const localGoals = await db.goals.toArray();
-        for (const lg of localGoals) {
-          if (!serverGoalIds.has(lg.id) && !pendingInserts.has(`financial_goals:${lg.id}`)) {
-            await db.goals.delete(lg.id);
-          }
-        }
+        const localGoalIds = new Set(localGoals.map(g => g.id));
+        const newGoals = goals.filter((g: any) => !localGoalIds.has(g.id) && !pendingDeletes.has(`financial_goals:${g.id}`));
 
-        if (validGoals.length > 0) {
-          await db.goals.bulkPut(validGoals);
+        if (newGoals.length > 0) {
+          await db.goals.bulkPut(newGoals);
         }
       }
 
@@ -234,7 +219,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
           // Normalize table-specific properties
           if (item.table === 'transactions') {
-            // Find local category name
             const localCat = await db.categories.get(payload.category_id);
             const targetName = localCat?.name || LOCAL_CAT_NAME_MAP[payload.category_id] || '';
             const targetType = localCat?.type || payload.type || 'Expense';
@@ -251,7 +235,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
               payload.category_id = matchedCat.id;
             }
 
-            // Normalize transaction_date
             if (payload.transaction_date) {
               const d = new Date(payload.transaction_date);
               if (!isNaN(d.getTime())) {
@@ -298,11 +281,95 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
     if (successCount > 0) {
       toast.success(`✓ ${successCount} data offline berhasil disinkronkan ke Supabase Cloud!`);
-      await pullData();
     }
     
     isSyncingRef.current = false;
     setIsSyncing(false);
+  };
+
+  // 3. Force Push: Overwrite everything in Supabase Cloud with Local Device State
+  const forcePushLocalToCloud = async () => {
+    if (!navigator.onLine) {
+      toast.error("Tidak dapat menimpa data cloud saat sedang offline.");
+      return;
+    }
+
+    setIsSyncing(true);
+    isSyncingRef.current = true;
+    toast.info("Mengunggah dan menimpa database cloud dengan data lokal...");
+
+    try {
+      const serverCats = await getServerCategories();
+      const defaultExpenseCat = serverCats.find((c: any) => c.type === 'Expense') || serverCats[0];
+      const defaultIncomeCat = serverCats.find((c: any) => c.type === 'Income') || serverCats[0];
+
+      // A. Overwrite Categories
+      const localCats = await db.categories.toArray();
+      for (const lcat of localCats) {
+        const catPayload = {
+          id: lcat.id.includes('-') && lcat.id.length === 36 ? lcat.id : undefined,
+          user_id: DEFAULT_USER_ID,
+          name: lcat.name,
+          type: lcat.type,
+          icon: lcat.icon || 'Tags',
+        };
+        if (catPayload.id) {
+          await supabase.from('categories').upsert([catPayload]);
+        }
+      }
+
+      // B. Overwrite Transactions
+      const localTxs = await db.transactions.toArray();
+      const formattedUploadTxs = [];
+
+      for (const tx of localTxs) {
+        const localCat = localCats.find(c => c.id === tx.category_id);
+        const targetName = localCat?.name || LOCAL_CAT_NAME_MAP[tx.category_id] || tx.category_name || '';
+        const targetType = tx.type || 'Expense';
+
+        let matchedCat = serverCats.find(
+          (c: any) => c.type === targetType && targetName && c.name.toLowerCase().trim() === targetName.toLowerCase().trim()
+        );
+
+        if (!matchedCat) {
+          matchedCat = targetType === 'Expense' ? defaultExpenseCat : defaultIncomeCat;
+        }
+
+        let dateFormatted = format(new Date(), 'yyyy-MM-dd');
+        if (tx.transaction_date) {
+          const d = new Date(tx.transaction_date);
+          if (!isNaN(d.getTime())) {
+            dateFormatted = format(d, 'yyyy-MM-dd');
+          }
+        }
+
+        formattedUploadTxs.push({
+          id: tx.id,
+          user_id: DEFAULT_USER_ID,
+          category_id: matchedCat?.id || defaultExpenseCat.id,
+          type: tx.type,
+          amount: Number(tx.amount),
+          description: tx.description || '',
+          transaction_date: dateFormatted,
+        });
+      }
+
+      if (formattedUploadTxs.length > 0) {
+        await supabase.from('transactions').upsert(formattedUploadTxs);
+      }
+
+      // Clear sync queue
+      await db.syncQueue.clear();
+      setPendingCount(0);
+
+      toast.success(`✓ Berhasil menimpa cloud! ${formattedUploadTxs.length} transaksi lokal tersimpan di Supabase.`);
+    } catch (err: any) {
+      console.error("Force push error:", err);
+      toast.error("Gagal menimpa data cloud: " + (err.message || "Error"));
+    } finally {
+      setIsSyncing(false);
+      isSyncingRef.current = false;
+    }
   };
 
   const syncNow = async () => {
@@ -357,7 +424,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <SyncContext.Provider value={{ isSyncing, isOnline, pendingCount, syncNow }}>
+    <SyncContext.Provider value={{ isSyncing, isOnline, pendingCount, syncNow, forcePushLocalToCloud }}>
       {children}
       
       {/* Offline Status Badge */}
@@ -378,5 +445,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     </SyncContext.Provider>
   );
 }
+
 
 
