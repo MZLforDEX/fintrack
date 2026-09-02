@@ -484,46 +484,47 @@ export default function TransactionsClient() {
 
   return (
     <div className="flex-1 space-y-6 p-4 sm:space-y-8 sm:p-8 sm:pt-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Transaksi</h2>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1">
             Riwayat transaksi yang dikelompokkan rapi berdasarkan tanggal.
           </p>
         </div>
         
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+        {/* Action Buttons: 3-column equal grid on Mobile, Flex on Desktop */}
+        <div className="grid grid-cols-3 gap-2 w-full sm:w-auto sm:flex items-center">
           {/* Scan Barcode Button */}
           <Button 
+            type="button"
             variant="outline" 
             size="sm" 
             onClick={() => setIsScannerOpen(true)}
-            className="gap-1.5 text-xs sm:text-sm border-primary/30 hover:border-primary text-foreground hover:bg-primary/5"
+            className="w-full sm:w-auto gap-1.5 text-xs sm:text-sm border-primary/30 hover:border-primary text-foreground hover:bg-primary/5 h-9 px-2 sm:px-3 justify-center"
             title="Pindai barcode barang"
           >
-            <ScanBarcode className="h-4 w-4 text-primary" />
-            <span className="hidden sm:inline">Scan Barcode</span>
-            <span className="sm:hidden">Barcode</span>
+            <ScanBarcode className="h-4 w-4 text-primary shrink-0" />
+            <span>Barcode</span>
           </Button>
 
           {/* Scan Struk Button */}
           <Button 
+            type="button"
             variant="outline" 
             size="sm" 
             onClick={() => setIsReceiptScannerOpen(true)}
-            className="gap-1.5 text-xs sm:text-sm border-primary/30 hover:border-primary text-foreground hover:bg-primary/5"
+            className="w-full sm:w-auto gap-1.5 text-xs sm:text-sm border-primary/30 hover:border-primary text-foreground hover:bg-primary/5 h-9 px-2 sm:px-3 justify-center"
             title="Pindai struk belanja / nota kasir"
           >
-            <Receipt className="h-4 w-4 text-primary" />
-            <span className="hidden sm:inline">Scan Struk</span>
-            <span className="sm:hidden">Struk</span>
+            <Receipt className="h-4 w-4 text-primary shrink-0" />
+            <span>Struk</span>
           </Button>
 
           {/* Tambah Transaksi Modal */}
           <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" onClick={handleOpenAddDialog} className="gap-1.5 text-xs sm:text-sm">
-                <Plus className="h-4 w-4" />
+              <Button size="sm" onClick={handleOpenAddDialog} className="w-full sm:w-auto gap-1.5 text-xs sm:text-sm h-9 px-2 sm:px-3 justify-center font-medium shadow-sm">
+                <Plus className="h-4 w-4 shrink-0" />
                 <span className="hidden sm:inline">Tambah Transaksi</span>
                 <span className="sm:hidden">Tambah</span>
               </Button>
@@ -533,89 +534,120 @@ export default function TransactionsClient() {
                 <DialogTitle>Tambah Transaksi Baru</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleAdd} className="space-y-4 pt-2">
-              <div className="space-y-2">
-                <Label>Tipe Transaksi</Label>
-                <Select value={type} onValueChange={(v: 'Income'|'Expense') => { setType(v); setCategoryId(""); }}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Expense">Pengeluaran</SelectItem>
-                    <SelectItem value="Income">Pemasukan</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-1.5 text-xs sm:text-sm">
-                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                    Tanggal
-                  </Label>
+                  <Label>Tipe Transaksi</Label>
+                  <Select value={type} onValueChange={(v: 'Income'|'Expense') => { setType(v); setCategoryId(""); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Expense">Pengeluaran</SelectItem>
+                      <SelectItem value="Income">Pemasukan</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5 text-xs sm:text-sm">
+                      <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                      Tanggal
+                    </Label>
+                    <Input 
+                      type="date" 
+                      value={date} 
+                      onChange={(e) => setDate(e.target.value)} 
+                      required 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5 text-xs sm:text-sm">
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                      Jam (Waktu)
+                    </Label>
+                    <Input 
+                      type="time" 
+                      value={time} 
+                      onChange={(e) => setTime(e.target.value)} 
+                      required 
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Nominal (Rp)</Label>
                   <Input 
-                    type="date" 
-                    value={date} 
-                    onChange={(e) => setDate(e.target.value)} 
+                    type="number" 
+                    min="0" 
+                    value={amount} 
+                    onChange={(e) => setAmount(e.target.value)} 
                     required 
+                    placeholder="Contoh: 50000" 
                   />
                 </div>
+
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-1.5 text-xs sm:text-sm">
-                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                    Jam (Waktu)
-                  </Label>
+                  <Label>Kategori</Label>
+                  <Select value={categoryId} onValueChange={setCategoryId} required>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Pilih Kategori" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredCategories.length === 0 ? (
+                        <SelectItem value="empty" disabled>Buat kategori dulu di menu Kategori</SelectItem>
+                      ) : (
+                        filteredCategories.map(c => (
+                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Keterangan (Opsional)</Label>
                   <Input 
-                    type="time" 
-                    value={time} 
-                    onChange={(e) => setTime(e.target.value)} 
-                    required 
+                    value={description} 
+                    onChange={(e) => setDescription(e.target.value)} 
+                    placeholder="Contoh: Makan siang, Beli kopi, dll" 
                   />
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label>Nominal (Rp)</Label>
-                <Input 
-                  type="number" 
-                  min="0" 
-                  value={amount} 
-                  onChange={(e) => setAmount(e.target.value)} 
-                  required 
-                  placeholder="Contoh: 50000" 
-                />
-              </div>
+                {/* Quick Action Tools inside form */}
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setIsOpen(false);
+                      setIsScannerOpen(true);
+                    }}
+                    className="gap-1.5 border-primary/30 hover:bg-primary/10 text-primary font-medium text-xs"
+                    title="Pindai barcode barang"
+                  >
+                    <ScanBarcode className="h-4 w-4" />
+                    Scan Barcode
+                  </Button>
 
-              <div className="space-y-2">
-                <Label>Kategori</Label>
-                <Select value={categoryId} onValueChange={setCategoryId} required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pilih Kategori" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {filteredCategories.length === 0 ? (
-                      <SelectItem value="empty" disabled>Buat kategori dulu di menu Kategori</SelectItem>
-                    ) : (
-                      filteredCategories.map(c => (
-                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setIsOpen(false);
+                      setIsReceiptScannerOpen(true);
+                    }}
+                    className="gap-1.5 border-primary/30 hover:bg-primary/10 text-primary font-medium text-xs"
+                    title="Foto struk belanja kasir"
+                  >
+                    <Receipt className="h-4 w-4" />
+                    Scan Struk
+                  </Button>
+                </div>
 
-              <div className="space-y-2">
-                <Label>Keterangan (Opsional)</Label>
-                <Input 
-                  value={description} 
-                  onChange={(e) => setDescription(e.target.value)} 
-                  placeholder="Contoh: Makan siang, Beli kopi, dll" 
-                />
-              </div>
-
-              <Button type="submit" className="w-full">Simpan Transaksi</Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <Button type="submit" className="w-full font-semibold">Simpan Transaksi</Button>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
