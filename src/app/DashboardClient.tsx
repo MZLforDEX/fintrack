@@ -1,12 +1,13 @@
 "use client";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowDownIcon, ArrowUpIcon, WalletIcon, TargetIcon, Activity } from 'lucide-react';
+import { ArrowDownIcon, ArrowUpIcon, WalletIcon, TargetIcon, Activity, Cloud, WifiOff, RefreshCw } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/lib/db';
+import { useSync } from '@/components/providers/SyncProvider';
 import { 
   BarChart, 
   Bar, 
@@ -19,6 +20,8 @@ import {
 } from "recharts";
 
 export default function DashboardClient() {
+  const { isOnline, isSyncing, syncNow } = useSync();
+
   // Fetch from local Dexie DB
   const allTransactions = useLiveQuery(() => db.transactions.toArray()) || [];
   const goals = useLiveQuery(() => db.goals.toArray()) || [];
@@ -104,8 +107,39 @@ export default function DashboardClient() {
 
   return (
     <div className="flex-1 space-y-6 p-4 sm:space-y-8 sm:p-8 sm:pt-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h2>
+
+        {/* Small Status Indicator */}
+        <button
+          type="button"
+          onClick={() => isOnline && !isSyncing && syncNow()}
+          disabled={!isOnline || isSyncing}
+          className="transition-all hover:opacity-80 active:scale-95 focus:outline-none"
+          title={!isOnline ? "Aplikasi sedang offline (Data tersimpan di perangkat lokal)" : isSyncing ? "Sedang menyinkronkan data ke cloud..." : "Online • Klik untuk sinkronkan data ke cloud"}
+        >
+          {!isOnline ? (
+            <div className="inline-flex items-center gap-1 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              <WifiOff className="h-3 w-3" />
+              <span>Offline</span>
+            </div>
+          ) : isSyncing ? (
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 animate-pulse">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              <span>Sinkron...</span>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+              </span>
+              <Cloud className="h-3 w-3" />
+              <span>Online</span>
+            </div>
+          )}
+        </button>
       </div>
       
       <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
