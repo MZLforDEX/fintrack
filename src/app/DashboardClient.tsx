@@ -1,12 +1,20 @@
 "use client";
 
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowDownIcon, ArrowUpIcon, WalletIcon, TargetIcon, Activity, Cloud, WifiOff, RefreshCw } from 'lucide-react';
+import { ArrowDownIcon, ArrowUpIcon, WalletIcon, TargetIcon, Activity, Cloud, WifiOff, RefreshCw, Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toast } from 'sonner';
+import { v4 as uuidv4 } from 'uuid';
 import { formatCurrency } from '@/lib/utils';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/lib/db';
+import { db, Transaction } from '@/lib/db';
 import { useSync } from '@/components/providers/SyncProvider';
 import { 
   BarChart, 
@@ -22,9 +30,76 @@ import {
 export default function DashboardClient() {
   const { isOnline, isSyncing, syncNow } = useSync();
 
+  // Quick Add Modal State
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [type, setType] = useState<'Income' | 'Expense'>('Expense');
+  const [categoryId, setCategoryId] = useState('');
+  const [txDate, setTxDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const [txTime, setTxTime] = useState(() => format(new Date(), 'HH:mm'));
+  const [description, setDescription] = useState('');
+
   // Fetch from local Dexie DB
   const allTransactions = useLiveQuery(() => db.transactions.toArray()) || [];
   const goals = useLiveQuery(() => db.goals.toArray()) || [];
+  const categories = useLiveQuery(() => db.categories.toArray()) || [];
+
+  const filteredCategories = categories.filter(c => c.type === type);
+
+  const handleOpenAddModal = () => {
+    setAmount('');
+    setDescription('');
+    setTxDate(format(new Date(), 'yyyy-MM-dd'));
+    setTxTime(format(new Date(), 'HH:mm'));
+    const defaultCat = categories.filter(c => c.type === type)[0]?.id || '';
+    setCategoryId(defaultCat);
+    setIsAddOpen(true);
+  };
+
+  const handleSaveTransaction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!amount || !categoryId) {
+      toast.error('Mohon lengkapi nominal dan kategori transaksi.');
+      return;
+    }
+
+    const catName = categories.find(c => c.id === categoryId)?.name || 'Lainnya';
+    const nowIso = new Date().toISOString();
+    const fullDateStr = `${txDate}T${txTime || '12:00'}:00.000Z`;
+
+    const newTx: Transaction = {
+      id: uuidv4(),
+      category_id: categoryId,
+      type,
+      amount: Number(amount),
+      description: description.trim() || undefined,
+      transaction_date: fullDateStr,
+      category_name: catName,
+      created_at: nowIso,
+    };
+
+    try {
+      await db.transactions.add(newTx);
+      await db.syncQueue.add({
+        operation: 'INSERT',
+        table: 'transactions',
+        payload: {
+          id: newTx.id,
+          category_id: newTx.category_id,
+          type: newTx.type,
+          amount: newTx.amount,
+          description: newTx.description || '',
+          transaction_date: newTx.transaction_date,
+        },
+        created_at: nowIso,
+      });
+
+      toast.success(`Transaksi ${type === 'Income' ? 'Pemasukan' : 'Pengeluaran'} berhasil dicatat!`);
+      setIsAddOpen(false);
+    } catch (err) {
+      toast.error('Gagal menambahkan transaksi.');
+    }
+  };
   
   let totalBalance = 0;
   let currentMonthIncome = 0;
@@ -283,6 +358,122 @@ export default function DashboardClient() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Floating Action Button (+) Tepat Mengambang di Atas Tombol Kalender (Center) */}
+      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 sm:bottom-8 sm:right-8 sm:left-auto sm:translate-x-0 z-40">
+        <Button
+          type="button"
+          onClick={handleOpenAddModal}
+          className="h-12 w-12 sm:h-14 sm:w-14 rounded-full shadow-2xl bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center p-0 transition-all hover:scale-110 active:scale-95 border-2 border-background ring-4 ring-primary/20"
+          title="Tambah Transaksi Cepat"
+          aria-label="Tambah Transaksi Cepat"
+        >
+          <Plus className="h-6 w-6 sm:h-7 sm:w-7" />
+        </Button>
+      </div>
+
+      {/* Quick Add Transaction Modal */}
+      <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="text-base sm:text-lg">
+              Tambah Transaksi Cepat
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSaveTransaction} className="space-y-4 pt-2">
+            {/* Type Selector */}
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={type === 'Expense' ? 'default' : 'outline'}
+                className={type === 'Expense' ? 'bg-rose-600 hover:bg-rose-700 text-white' : ''}
+                onClick={() => {
+                  setType('Expense');
+                  const expCats = categories.filter(c => c.type === 'Expense');
+                  setCategoryId(expCats[0]?.id || '');
+                }}
+              >
+                Pengeluaran
+              </Button>
+              <Button
+                type="button"
+                variant={type === 'Income' ? 'default' : 'outline'}
+                className={type === 'Income' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}
+                onClick={() => {
+                  setType('Income');
+                  const incCats = categories.filter(c => c.type === 'Income');
+                  setCategoryId(incCats[0]?.id || '');
+                }}
+              >
+                Pemasukan
+              </Button>
+            </div>
+
+            {/* Amount */}
+            <div className="space-y-2">
+              <Label>Nominal (Rp)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="Contoh: 50000"
+                required
+                autoFocus
+              />
+            </div>
+
+            {/* Category */}
+            <div className="space-y-2">
+              <Label>Kategori</Label>
+              <Select value={categoryId} onValueChange={setCategoryId} required>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih Kategori" />
+                </SelectTrigger>
+                <SelectContent>
+                  {filteredCategories.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Date & Time */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <Label>Tanggal</Label>
+                <Input
+                  type="date"
+                  value={txDate}
+                  onChange={(e) => setTxDate(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Jam</Label>
+                <Input
+                  type="time"
+                  value={txTime}
+                  onChange={(e) => setTxTime(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Description */}
+            <div className="space-y-2">
+              <Label>Deskripsi / Catatan (Opsional)</Label>
+              <Input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Contoh: Beli makan siang"
+              />
+            </div>
+
+            <Button type="submit" className="w-full">Simpan Transaksi</Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
