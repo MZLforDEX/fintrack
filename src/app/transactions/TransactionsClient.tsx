@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, Transaction, Product } from "@/lib/db";
+import { db, Transaction, Product, seedDefaultProducts } from "@/lib/db";
 import { createClient } from "@/lib/supabase/client";
 import { format } from "date-fns";
 import { id as idLocale } from "date-fns/locale";
@@ -33,6 +33,10 @@ export default function TransactionsClient() {
   const transactions = useLiveQuery(() => db.transactions.orderBy('transaction_date').reverse().toArray()) || [];
   const categories = useLiveQuery(() => db.categories.toArray()) || [];
   const products = useLiveQuery(() => db.products.toArray()) || [];
+
+  useEffect(() => {
+    seedDefaultProducts();
+  }, []);
 
   const isHandlingScanRef = useRef(false);
 

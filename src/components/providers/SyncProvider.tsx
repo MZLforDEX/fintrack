@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { db, seedDefaultCategories } from "@/lib/db";
+import { db, seedDefaultCategories, seedDefaultProducts } from "@/lib/db";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 
@@ -206,8 +206,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
-    // Seed default categories if empty
+    // Seed default categories & products if empty
     seedDefaultCategories();
+    seedDefaultProducts();
 
     // Initial sync on mount
     syncNow();
