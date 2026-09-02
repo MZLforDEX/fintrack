@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, Transaction } from "@/lib/db";
+import { db, Transaction, Product } from "@/lib/db";
 import { createClient } from "@/lib/supabase/client";
 import { format } from "date-fns";
 import { id as idLocale } from "date-fns/locale";
@@ -14,7 +14,10 @@ import {
   Pencil, 
   Trash2, 
   Clock, 
-  Calendar 
+  Calendar,
+  ScanBarcode,
+  PackagePlus,
+  Barcode
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,11 +26,21 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
+import { BarcodeScannerModal } from "@/components/scanner/BarcodeScannerModal";
 
 export default function TransactionsClient() {
   const transactions = useLiveQuery(() => db.transactions.orderBy('transaction_date').reverse().toArray()) || [];
   const categories = useLiveQuery(() => db.categories.toArray()) || [];
+  const products = useLiveQuery(() => db.products.toArray()) || [];
+
+  // Barcode Scanner & Smart Memory State
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isRegisterProductOpen, setIsRegisterProductOpen] = useState(false);
+  const [scannedBarcode, setScannedBarcode] = useState("");
+  const [productName, setProductName] = useState("");
+  const [productPrice, setProductPrice] = useState("");
+  const [productCategory, setProductCategory] = useState("");
 
   // Add Transaction Modal State
   const [isOpen, setIsOpen] = useState(false);
@@ -50,6 +63,103 @@ export default function TransactionsClient() {
 
   const filteredCategories = categories.filter(c => c.type === type);
   const editFilteredCategories = categories.filter(c => c.type === editType);
+  const expenseCategories = categories.filter(c => c.type === 'Expense');
+
+  // Handle Barcode Scan Result
+  const handleBarcodeDetected = async (barcode: string) => {
+    setIsScannerOpen(false);
+
+    try {
+      const existingProduct = await db.products.where('barcode').equals(barcode).first();
+
+      if (existingProduct) {
+        // Known product found in memory!
+        const now = new Date();
+        setDate(format(now, "yyyy-MM-dd"));
+        setTime(format(now, "HH:mm"));
+        setAmount(String(existingProduct.default_price));
+        setDescription(existingProduct.name);
+        setType("Expense");
+        setCategoryId(existingProduct.category_id || (expenseCategories[0]?.id || ""));
+        
+        toast.success(`Barang dikenali: "${existingProduct.name}" (${formatCurrency(existingProduct.default_price)})`);
+        setIsOpen(true);
+      } else {
+        // New barcode -> Open registration dialog
+        setScannedBarcode(barcode);
+        setProductName("");
+        setProductPrice("");
+        setProductCategory(expenseCategories[0]?.id || "");
+        setIsRegisterProductOpen(true);
+        toast.info("Barcode baru terdeteksi! Masukkan nama & harga barang.");
+      }
+    } catch (err) {
+      toast.error("Gagal memeriksa data barcode.");
+    }
+  };
+
+  const handleRegisterProductAndTransaction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!productName || !productPrice || !productCategory) {
+      toast.error("Mohon lengkapi semua data barang.");
+      return;
+    }
+
+    const catName = categories.find(c => c.id === productCategory)?.name || 'Lainnya';
+    const nowIso = new Date().toISOString();
+
+    try {
+      // 1. Save to Product Memory
+      const newProduct: Product = {
+        id: uuidv4(),
+        barcode: scannedBarcode,
+        name: productName.trim(),
+        default_price: Number(productPrice),
+        category_id: productCategory,
+        category_name: catName,
+        created_at: nowIso,
+        updated_at: nowIso,
+      };
+      await db.products.add(newProduct);
+
+      // 2. Immediately record Transaction
+      const newTxId = uuidv4();
+      const txPayload: Transaction = {
+        id: newTxId,
+        category_id: productCategory,
+        type: 'Expense',
+        amount: Number(productPrice),
+        description: productName.trim(),
+        transaction_date: nowIso,
+        category_name: catName,
+        created_at: nowIso,
+      };
+      await db.transactions.add(txPayload);
+
+      // 3. Queue sync
+      await db.syncQueue.add({
+        operation: 'INSERT',
+        table: 'transactions',
+        payload: {
+          id: txPayload.id,
+          category_id: txPayload.category_id,
+          type: txPayload.type,
+          amount: txPayload.amount,
+          description: txPayload.description,
+          transaction_date: txPayload.transaction_date,
+        },
+        created_at: nowIso
+      });
+
+      toast.success(`Barang "${productName}" berhasil disimpan & dicatat ke transaksi!`);
+      setIsRegisterProductOpen(false);
+      setScannedBarcode("");
+      setProductName("");
+      setProductPrice("");
+    } catch (err) {
+      toast.error("Gagal menyimpan barang dan transaksi.");
+    }
+  };
 
   const handleOpenAddDialog = () => {
     const now = new Date();
@@ -299,20 +409,33 @@ export default function TransactionsClient() {
           </p>
         </div>
         
-        {/* Tambah Transaksi Modal */}
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm" onClick={handleOpenAddDialog} className="gap-1.5 text-xs sm:text-sm">
-              <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">Tambah Transaksi</span>
-              <span className="sm:hidden">Tambah</span>
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[450px]">
-            <DialogHeader>
-              <DialogTitle>Tambah Transaksi Baru</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleAdd} className="space-y-4 pt-2">
+        <div className="flex items-center gap-2">
+          {/* Scan Barcode Button */}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setIsScannerOpen(true)}
+            className="gap-1.5 text-xs sm:text-sm border-primary/30 hover:border-primary text-foreground hover:bg-primary/5"
+          >
+            <ScanBarcode className="h-4 w-4 text-primary" />
+            <span className="hidden sm:inline">Scan Barcode</span>
+            <span className="sm:hidden">Scan</span>
+          </Button>
+
+          {/* Tambah Transaksi Modal */}
+          <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" onClick={handleOpenAddDialog} className="gap-1.5 text-xs sm:text-sm">
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">Tambah Transaksi</span>
+                <span className="sm:hidden">Tambah</span>
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[450px]">
+              <DialogHeader>
+                <DialogTitle>Tambah Transaksi Baru</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleAdd} className="space-y-4 pt-2">
               <div className="space-y-2">
                 <Label>Tipe Transaksi</Label>
                 <Select value={type} onValueChange={(v: 'Income'|'Expense') => { setType(v); setCategoryId(""); }}>
@@ -396,6 +519,7 @@ export default function TransactionsClient() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Edit Transaksi Modal */}
@@ -485,6 +609,89 @@ export default function TransactionsClient() {
             </div>
 
             <Button type="submit" className="w-full">Simpan Perubahan</Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScanSuccess={handleBarcodeDetected}
+      />
+
+      {/* Register New Product Dialog */}
+      <Dialog open={isRegisterProductOpen} onOpenChange={setIsRegisterProductOpen}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500">
+                <PackagePlus className="h-5 w-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-base sm:text-lg">Daftarkan Barang Baru</DialogTitle>
+                <DialogDescription className="text-xs">
+                  Barcode baru terdeteksi. Simpan untuk pencatatan otomatis ke depan.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <form onSubmit={handleRegisterProductAndTransaction} className="space-y-4 pt-2">
+            <div className="bg-muted/50 p-3 rounded-lg flex items-center justify-between border">
+              <span className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+                <Barcode className="h-3.5 w-3.5" />
+                Nomor Barcode:
+              </span>
+              <span className="text-xs font-mono font-bold bg-background px-2.5 py-1 rounded border">
+                {scannedBarcode}
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs sm:text-sm">Nama Barang / Produk</Label>
+              <Input
+                value={productName}
+                onChange={(e) => setProductName(e.target.value)}
+                placeholder="Contoh: Susu Ultra Milk 250ml"
+                required
+                autoFocus
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs sm:text-sm">Harga Barang (Rp)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={productPrice}
+                onChange={(e) => setProductPrice(e.target.value)}
+                placeholder="Contoh: 7000"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs sm:text-sm">Kategori Pengeluaran</Label>
+              <Select value={productCategory} onValueChange={setProductCategory} required>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih Kategori" />
+                </SelectTrigger>
+                <SelectContent>
+                  {expenseCategories.length === 0 ? (
+                    <SelectItem value="empty" disabled>Buat kategori dulu di menu Kategori</SelectItem>
+                  ) : (
+                    expenseCategories.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Button type="submit" className="w-full gap-2">
+              <PackagePlus className="h-4 w-4" />
+              Simpan Barang & Catat Transaksi
+            </Button>
           </form>
         </DialogContent>
       </Dialog>

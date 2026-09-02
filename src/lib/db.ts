@@ -49,6 +49,17 @@ export interface FinancialGoal {
   updated_at?: string;
 }
 
+export interface Product {
+  id: string;
+  barcode: string;
+  name: string;
+  default_price: number;
+  category_id?: string;
+  category_name?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface SyncQueue {
   id?: number;
   operation: 'INSERT' | 'UPDATE' | 'DELETE';
@@ -62,6 +73,7 @@ export class FinTrackDB extends Dexie {
   categories!: Table<Category, string>;
   budgets!: Table<Budget, string>;
   goals!: Table<FinancialGoal, string>;
+  products!: Table<Product, string>;
   syncQueue!: Table<SyncQueue, number>;
 
   constructor() {
@@ -72,6 +84,15 @@ export class FinTrackDB extends Dexie {
       categories: 'id, type',
       budgets: 'id, category_id, [month+year]',
       goals: 'id, status',
+      syncQueue: '++id, table, operation, created_at'
+    });
+
+    this.version(3).stores({
+      transactions: 'id, category_id, type, transaction_date',
+      categories: 'id, type',
+      budgets: 'id, category_id, [month+year]',
+      goals: 'id, status',
+      products: 'id, barcode',
       syncQueue: '++id, table, operation, created_at'
     });
   }
