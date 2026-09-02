@@ -61,17 +61,6 @@ export function Sidebar() {
           })}
         </nav>
       </div>
-      <div className="border-t p-4">
-        <form action="/auth/logout" method="post">
-          <button
-            type="submit"
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
-          >
-            <LogOut className="h-4 w-4" />
-            Keluar Aplikasi
-          </button>
-        </form>
-      </div>
     </div>
   );
 }

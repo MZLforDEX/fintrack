@@ -1,14 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
 import BudgetsClient from "./BudgetsClient";
 
-export default async function BudgetsPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
+export default function BudgetsPage() {
   return <BudgetsClient />;
 }
