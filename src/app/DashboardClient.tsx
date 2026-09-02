@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowDownIcon, ArrowUpIcon, WalletIcon, TargetIcon, Activity, Cloud, WifiOff, RefreshCw, Plus } from 'lucide-react';
+import { ArrowDownIcon, ArrowUpIcon, WalletIcon, TargetIcon, Activity, Cloud, WifiOff, RefreshCw, Plus, ScanBarcode, PackagePlus, Barcode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -14,8 +14,9 @@ import { formatCurrency } from '@/lib/utils';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Transaction } from '@/lib/db';
+import { db, Transaction, Product } from '@/lib/db';
 import { useSync } from '@/components/providers/SyncProvider';
+import { BarcodeScannerModal } from '@/components/scanner/BarcodeScannerModal';
 import { 
   BarChart, 
   Bar, 
@@ -39,12 +40,22 @@ export default function DashboardClient() {
   const [txTime, setTxTime] = useState(() => format(new Date(), 'HH:mm'));
   const [description, setDescription] = useState('');
 
+  // Barcode Scanner & Product Memory State
+  const isHandlingScanRef = useRef(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isRegisterProductOpen, setIsRegisterProductOpen] = useState(false);
+  const [scannedBarcode, setScannedBarcode] = useState('');
+  const [productName, setProductName] = useState('');
+  const [productPrice, setProductPrice] = useState('');
+  const [productCategory, setProductCategory] = useState('');
+
   // Fetch from local Dexie DB
   const allTransactions = useLiveQuery(() => db.transactions.toArray()) || [];
   const goals = useLiveQuery(() => db.goals.toArray()) || [];
   const categories = useLiveQuery(() => db.categories.toArray()) || [];
 
   const filteredCategories = categories.filter(c => c.type === type);
+  const expenseCategories = categories.filter(c => c.type === 'Expense');
 
   const handleOpenAddModal = () => {
     setAmount('');
@@ -98,6 +109,130 @@ export default function DashboardClient() {
       setIsAddOpen(false);
     } catch (err) {
       toast.error('Gagal menambahkan transaksi.');
+    }
+  };
+
+  const handleBarcodeDetected = async (barcode: string) => {
+    if (isHandlingScanRef.current) return;
+    isHandlingScanRef.current = true;
+    setIsScannerOpen(false);
+
+    try {
+      const existingProduct = await db.products.where('barcode').equals(barcode).first();
+
+      if (existingProduct) {
+        // Known product in memory -> Record transaction directly
+        const nowIso = new Date().toISOString();
+        const newTxId = uuidv4();
+        const catId = existingProduct.category_id || (expenseCategories[0]?.id || 'cat-exp-1');
+        const catName = categories.find(c => c.id === catId)?.name || existingProduct.category_name || 'Pengeluaran';
+
+        const txPayload: Transaction = {
+          id: newTxId,
+          category_id: catId,
+          type: 'Expense',
+          amount: Number(existingProduct.default_price),
+          description: existingProduct.name,
+          transaction_date: nowIso,
+          category_name: catName,
+          created_at: nowIso,
+        };
+
+        await db.transactions.add(txPayload);
+        await db.syncQueue.add({
+          operation: 'INSERT',
+          table: 'transactions',
+          payload: {
+            id: txPayload.id,
+            category_id: txPayload.category_id,
+            type: txPayload.type,
+            amount: txPayload.amount,
+            description: txPayload.description || '',
+            transaction_date: txPayload.transaction_date,
+          },
+          created_at: nowIso,
+        });
+
+        toast.success(`Transaksi berhasil dicatat otomatis: "${existingProduct.name}" (${formatCurrency(existingProduct.default_price)})`, {
+          id: 'barcode-scan-toast',
+          duration: 3500,
+        });
+      } else {
+        // New barcode -> Open registration dialog
+        setScannedBarcode(barcode);
+        setProductName('');
+        setProductPrice('');
+        setProductCategory(expenseCategories[0]?.id || '');
+        setIsRegisterProductOpen(true);
+        toast.info('Barcode baru terdeteksi! Masukkan nama & harga barang.', {
+          id: 'barcode-scan-toast',
+          duration: 4000,
+        });
+      }
+    } catch (err) {
+      toast.error('Gagal memproses data barcode.', { id: 'barcode-scan-toast' });
+    } finally {
+      setTimeout(() => {
+        isHandlingScanRef.current = false;
+      }, 800);
+    }
+  };
+
+  const handleRegisterProductAndTransaction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!productName || !productPrice || !productCategory) {
+      toast.error('Mohon lengkapi semua data barang.');
+      return;
+    }
+
+    const catName = categories.find(c => c.id === productCategory)?.name || 'Lainnya';
+    const nowIso = new Date().toISOString();
+
+    try {
+      const newProduct: Product = {
+        id: uuidv4(),
+        barcode: scannedBarcode,
+        name: productName.trim(),
+        default_price: Number(productPrice),
+        category_id: productCategory,
+        category_name: catName,
+        created_at: nowIso,
+        updated_at: nowIso,
+      };
+
+      await db.products.put(newProduct);
+
+      const newTxId = uuidv4();
+      const txPayload: Transaction = {
+        id: newTxId,
+        category_id: productCategory,
+        type: 'Expense',
+        amount: Number(productPrice),
+        description: newProduct.name,
+        transaction_date: nowIso,
+        category_name: catName,
+        created_at: nowIso,
+      };
+
+      await db.transactions.add(txPayload);
+      await db.syncQueue.add({
+        operation: 'INSERT',
+        table: 'transactions',
+        payload: {
+          id: txPayload.id,
+          category_id: txPayload.category_id,
+          type: txPayload.type,
+          amount: txPayload.amount,
+          description: txPayload.description || '',
+          transaction_date: txPayload.transaction_date,
+        },
+        created_at: nowIso,
+      });
+
+      toast.success(`Barang baru didaftarkan & transaksi dicatat: "${newProduct.name}" (${formatCurrency(newProduct.default_price)})`);
+      setIsRegisterProductOpen(false);
+    } catch (err) {
+      toast.error('Gagal menyimpan barang baru.');
     }
   };
   
@@ -470,7 +605,99 @@ export default function DashboardClient() {
               />
             </div>
 
-            <Button type="submit" className="w-full">Simpan Transaksi</Button>
+            {/* Actions: Scan Barcode & Simpan Transaksi */}
+            <div className="flex items-center gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setIsAddOpen(false);
+                  setIsScannerOpen(true);
+                }}
+                className="flex-1 gap-1.5 border-primary/40 hover:bg-primary/10 text-primary font-medium"
+                title="Pindai barcode barang dengan kamera"
+              >
+                <ScanBarcode className="h-4 w-4" />
+                Scan Barcode
+              </Button>
+
+              <Button type="submit" className="flex-1">
+                Simpan Transaksi
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScanSuccess={handleBarcodeDetected}
+      />
+
+      {/* Register New Scanned Product Dialog */}
+      <Dialog open={isRegisterProductOpen} onOpenChange={setIsRegisterProductOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <PackagePlus className="h-5 w-5 text-primary" />
+              Daftarkan Barang Baru
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Barcode belum terdaftar. Masukkan detail barang untuk disimpan ke memori dan dicatat ke transaksi.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleRegisterProductAndTransaction} className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Nomor Barcode</Label>
+              <div className="flex items-center gap-2 p-2.5 rounded-lg border bg-muted/50 font-mono text-xs font-semibold">
+                <Barcode className="h-4 w-4 text-primary" />
+                <span>{scannedBarcode}</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Nama Barang</Label>
+              <Input
+                value={productName}
+                onChange={(e) => setProductName(e.target.value)}
+                placeholder="Contoh: Kopi Kapal Api 65g"
+                required
+                autoFocus
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Harga (Rp)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={productPrice}
+                onChange={(e) => setProductPrice(e.target.value)}
+                placeholder="Contoh: 8500"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Kategori</Label>
+              <Select value={productCategory} onValueChange={setProductCategory} required>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih Kategori" />
+                </SelectTrigger>
+                <SelectContent>
+                  {expenseCategories.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Button type="submit" className="w-full">
+              Simpan & Catat Transaksi
+            </Button>
           </form>
         </DialogContent>
       </Dialog>
