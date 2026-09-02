@@ -3,10 +3,20 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowDownIcon, ArrowUpIcon, WalletIcon, TargetIcon, Activity } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/lib/db';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer, 
+  Legend 
+} from "recharts";
 
 export default function DashboardClient() {
   // Fetch from local Dexie DB
@@ -20,6 +30,22 @@ export default function DashboardClient() {
   const date = new Date();
   const firstDayOfMonth = new Date(date.getFullYear(), date.getMonth(), 1).toISOString();
 
+  // 6 Months data for chart
+  const monthlyData: { month: string; rawMonth: string; income: number; expense: number }[] = [];
+  
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date();
+    d.setMonth(d.getMonth() - i);
+    const monthName = d.toLocaleString('id-ID', { month: 'short' });
+    const rawMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    monthlyData.push({
+      month: monthName,
+      rawMonth,
+      income: 0,
+      expense: 0,
+    });
+  }
+
   allTransactions.forEach(tx => {
     // Total Balance
     if (tx.type === 'Income') totalBalance += Number(tx.amount);
@@ -30,7 +56,22 @@ export default function DashboardClient() {
       if (tx.type === 'Income') currentMonthIncome += Number(tx.amount);
       if (tx.type === 'Expense') currentMonthExpense += Number(tx.amount);
     }
+
+    // Chart grouping
+    try {
+      const txDate = new Date(tx.transaction_date);
+      if (!isNaN(txDate.getTime())) {
+        const rawMonth = `${txDate.getFullYear()}-${String(txDate.getMonth() + 1).padStart(2, '0')}`;
+        const target = monthlyData.find(m => m.rawMonth === rawMonth);
+        if (target) {
+          if (tx.type === 'Income') target.income += Number(tx.amount);
+          if (tx.type === 'Expense') target.expense += Number(tx.amount);
+        }
+      }
+    } catch {}
   });
+
+  const hasChartData = monthlyData.some(m => m.income > 0 || m.expense > 0);
 
   // Goals
   const totalGoals = goals.length;
@@ -40,6 +81,26 @@ export default function DashboardClient() {
   const recentTransactions = [...allTransactions]
     .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime())
     .slice(0, 5);
+
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-popover border border-border text-popover-foreground rounded-lg shadow-lg p-3 text-xs sm:text-sm">
+          <p className="font-semibold mb-2">{label}</p>
+          {payload.map((entry: any, index: number) => (
+            <div key={index} className="flex items-center justify-between gap-4 my-1">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                <span className="text-muted-foreground">{entry.name}:</span>
+              </div>
+              <span className="font-medium">{formatCurrency(entry.value)}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="flex-1 space-y-6 p-4 sm:space-y-8 sm:p-8 sm:pt-6">
@@ -106,21 +167,51 @@ export default function DashboardClient() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+        {/* Aktivitas Keuangan Chart */}
         <Card className="col-span-4 hover:shadow-md transition-shadow">
           <CardHeader>
             <CardTitle>Aktivitas Keuangan</CardTitle>
             <CardDescription>
-              Ringkasan pemasukan dan pengeluaran 6 bulan terakhir.
+              Grafik perbandingan pemasukan dan pengeluaran 6 bulan terakhir.
             </CardDescription>
           </CardHeader>
-          <CardContent className="pl-2 h-[300px] flex items-center justify-center border-t bg-muted/10">
-            <div className="flex flex-col items-center text-muted-foreground gap-2">
-              <Activity className="h-10 w-10 opacity-20" />
-              <p className="text-sm font-medium">Grafik akan ditampilkan di sini</p>
-            </div>
+          <CardContent className="pl-0 sm:pl-2">
+            {!hasChartData ? (
+              <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+                <Activity className="h-10 w-10 opacity-20" />
+                <p className="text-sm font-medium">Belum ada data aktivitas transaksi.</p>
+              </div>
+            ) : (
+              <div className="h-[300px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthlyData} margin={{ top: 10, right: 15, left: -10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))" />
+                    <XAxis 
+                      dataKey="month" 
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+                      dy={5}
+                    />
+                    <YAxis 
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                      tickFormatter={(val) => val >= 1000000 ? `${(val / 1000000).toFixed(0)}jt` : val >= 1000 ? `${(val / 1000).toFixed(0)}rb` : val}
+                      width={55}
+                    />
+                    <Tooltip content={<CustomTooltip />} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.3 }} />
+                    <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
+                    <Bar dataKey="income" name="Pemasukan" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                    <Bar dataKey="expense" name="Pengeluaran" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </CardContent>
         </Card>
         
+        {/* Transaksi Terakhir */}
         <Card className="col-span-3 hover:shadow-md transition-shadow">
           <CardHeader>
             <CardTitle>Transaksi Terakhir</CardTitle>
@@ -161,3 +252,4 @@ export default function DashboardClient() {
     </div>
   );
 }
+
