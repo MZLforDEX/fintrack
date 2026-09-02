@@ -5,9 +5,10 @@ import { usePathname } from "next/navigation";
 import { 
   LayoutDashboard, 
   Receipt, 
+  Tags,
   Wallet, 
   Target, 
-  User
+  PieChart 
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -17,8 +18,10 @@ export function MobileNav() {
   const navItems = [
     { title: "Home", href: "/", icon: LayoutDashboard },
     { title: "Transaksi", href: "/transactions", icon: Receipt },
+    { title: "Kategori", href: "/categories", icon: Tags },
     { title: "Budget", href: "/budgets", icon: Wallet },
     { title: "Goals", href: "/goals", icon: Target },
+    { title: "Analytics", href: "/analytics", icon: PieChart },
   ];
 
   return (
