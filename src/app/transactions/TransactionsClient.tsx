@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, Transaction, Product } from "@/lib/db";
 import { createClient } from "@/lib/supabase/client";
@@ -33,6 +33,8 @@ export default function TransactionsClient() {
   const transactions = useLiveQuery(() => db.transactions.orderBy('transaction_date').reverse().toArray()) || [];
   const categories = useLiveQuery(() => db.categories.toArray()) || [];
   const products = useLiveQuery(() => db.products.toArray()) || [];
+
+  const isHandlingScanRef = useRef(false);
 
   // Barcode Scanner & Smart Memory State
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -67,6 +69,8 @@ export default function TransactionsClient() {
 
   // Handle Barcode Scan Result
   const handleBarcodeDetected = async (barcode: string) => {
+    if (isHandlingScanRef.current) return;
+    isHandlingScanRef.current = true;
     setIsScannerOpen(false);
 
     try {
@@ -107,7 +111,8 @@ export default function TransactionsClient() {
         });
 
         toast.success(`Transaksi berhasil dicatat otomatis: "${existingProduct.name}" (${formatCurrency(existingProduct.default_price)})`, {
-          duration: 4000,
+          id: "barcode-scan-toast",
+          duration: 3500,
         });
       } else {
         // New barcode -> Open registration dialog
@@ -116,10 +121,17 @@ export default function TransactionsClient() {
         setProductPrice("");
         setProductCategory(expenseCategories[0]?.id || "");
         setIsRegisterProductOpen(true);
-        toast.info("Barcode baru terdeteksi! Masukkan nama & harga barang.");
+        toast.info("Barcode baru terdeteksi! Masukkan nama & harga barang.", {
+          id: "barcode-scan-toast",
+          duration: 4000,
+        });
       }
     } catch (err) {
-      toast.error("Gagal memproses data barcode.");
+      toast.error("Gagal memproses data barcode.", { id: "barcode-scan-toast" });
+    } finally {
+      setTimeout(() => {
+        isHandlingScanRef.current = false;
+      }, 800);
     }
   };
 

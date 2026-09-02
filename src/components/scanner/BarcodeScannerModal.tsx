@@ -42,6 +42,7 @@ export function BarcodeScannerModal({
   const [isFlashOn, setIsFlashOn] = useState(false);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const isProcessingRef = useRef(false);
   const containerId = "fintrack-barcode-scanner-box";
 
   // Play subtle beep sound on detection
@@ -65,16 +66,19 @@ export function BarcodeScannerModal({
     } catch {}
   };
 
-  const handleDetected = (barcode: string) => {
+  const handleDetected = async (barcode: string) => {
     const clean = barcode.trim();
-    if (!clean) return;
+    if (!clean || isProcessingRef.current) return;
+    isProcessingRef.current = true;
+
     playBeep();
-    stopScanner();
+    await stopScanner();
     onScanSuccess(clean);
   };
 
   const startScanner = async () => {
     setCameraError(null);
+    isProcessingRef.current = false;
     try {
       if (scannerRef.current) {
         try {
