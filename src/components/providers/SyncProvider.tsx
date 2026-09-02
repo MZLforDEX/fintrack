@@ -91,8 +91,24 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           } else {
              console.error("Sync error INSERT:", error);
           }
+        } else if (item.operation === 'UPDATE') {
+          const { id, ...data } = item.payload;
+          const { error } = await supabase.from(item.table).update(data).eq('id', id);
+          if (!error) {
+            await db.syncQueue.delete(item.id!);
+            successCount++;
+          } else {
+             console.error("Sync error UPDATE:", error);
+          }
+        } else if (item.operation === 'DELETE') {
+          const { error } = await supabase.from(item.table).delete().eq('id', item.payload.id);
+          if (!error) {
+            await db.syncQueue.delete(item.id!);
+            successCount++;
+          } else {
+             console.error("Sync error DELETE:", error);
+          }
         }
-        // Add UPDATE/DELETE support if needed
       } catch (err) {
         console.error("Sync failed for item:", item, err);
       }
