@@ -218,15 +218,76 @@ export default function TransactionsClient() {
     }
   };
 
-  const formatTransactionTime = (dateStr: string) => {
+  const getDateLabel = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
       if (isNaN(d.getTime())) return dateStr;
-      return format(d, "d MMM yyyy, HH:mm", { locale: idLocale });
+      
+      const today = new Date();
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      
+      const isToday = format(d, "yyyy-MM-dd") === format(today, "yyyy-MM-dd");
+      const isYesterday = format(d, "yyyy-MM-dd") === format(yesterday, "yyyy-MM-dd");
+      
+      if (isToday) {
+        return `Hari Ini • ${format(d, "d MMMM yyyy", { locale: idLocale })}`;
+      }
+      if (isYesterday) {
+        return `Kemarin • ${format(d, "d MMMM yyyy", { locale: idLocale })}`;
+      }
+      return format(d, "EEEE, d MMMM yyyy", { locale: idLocale });
     } catch {
       return dateStr;
     }
   };
+
+  const formatTimeOnly = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return "";
+      return format(d, "HH:mm");
+    } catch {
+      return "";
+    }
+  };
+
+  // Group transactions by date
+  interface GroupedTransactions {
+    dateKey: string;
+    displayDate: string;
+    totalIncome: number;
+    totalExpense: number;
+    items: Transaction[];
+  }
+
+  const groupedTransactions: GroupedTransactions[] = [];
+  
+  transactions.forEach(tx => {
+    let dateKey = "Lainnya";
+    try {
+      const d = new Date(tx.transaction_date);
+      if (!isNaN(d.getTime())) {
+        dateKey = format(d, "yyyy-MM-dd");
+      }
+    } catch {}
+
+    let group = groupedTransactions.find(g => g.dateKey === dateKey);
+    if (!group) {
+      group = {
+        dateKey,
+        displayDate: getDateLabel(tx.transaction_date),
+        totalIncome: 0,
+        totalExpense: 0,
+        items: []
+      };
+      groupedTransactions.push(group);
+    }
+
+    if (tx.type === 'Income') group.totalIncome += Number(tx.amount);
+    if (tx.type === 'Expense') group.totalExpense += Number(tx.amount);
+    group.items.push(tx);
+  });
 
   return (
     <div className="flex-1 space-y-6 p-4 sm:space-y-8 sm:p-8 sm:pt-6">
@@ -234,7 +295,7 @@ export default function TransactionsClient() {
         <div>
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Transaksi</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Catat, edit, dan kelola seluruh transaksi pemasukan dan pengeluaran Anda.
+            Riwayat transaksi yang dikelompokkan rapi berdasarkan tanggal.
           </p>
         </div>
         
@@ -428,75 +489,105 @@ export default function TransactionsClient() {
         </DialogContent>
       </Dialog>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base sm:text-lg">Riwayat Transaksi</CardTitle>
-            <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-muted text-muted-foreground">
-              {transactions.length} Transaksi
-            </span>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {transactions.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground text-sm">
+      {/* Grouped Transactions List */}
+      <div className="space-y-4">
+        {transactions.length === 0 ? (
+          <Card>
+            <CardContent className="text-center py-16 text-muted-foreground text-sm">
               Belum ada riwayat transaksi. Klik <strong>+ Tambah Transaksi</strong> untuk mencatat.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {transactions.map(tx => (
-                <div 
-                  key={tx.id} 
-                  className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors group"
-                >
-                  <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${tx.type === 'Income' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-destructive/10 text-destructive border-destructive/20'}`}>
-                      {tx.type === 'Income' ? <ArrowUpIcon className="h-5 w-5" /> : <ArrowDownIcon className="h-5 w-5" />}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm sm:text-base leading-snug truncate">
-                        {tx.description || tx.category_name || 'Transaksi'}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
-                        <span>{formatTransactionTime(tx.transaction_date)}</span>
-                        <span>•</span>
-                        <span className="font-medium text-foreground/80">{tx.category_name}</span>
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-2">
-                    <div className={`text-sm sm:text-base font-semibold ${tx.type === 'Income' ? 'text-emerald-500' : 'text-foreground'}`}>
-                      {tx.type === 'Income' ? '+' : '-'} {formatCurrency(tx.amount)}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleOpenEditDialog(tx)}
-                        className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-70 group-hover:opacity-100 transition-opacity"
-                        title="Edit transaksi"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(tx.id, tx.description || tx.category_name)}
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-70 group-hover:opacity-100 transition-opacity"
-                        title="Hapus transaksi"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
+            </CardContent>
+          </Card>
+        ) : (
+          groupedTransactions.map(group => (
+            <Card key={group.dateKey} className="overflow-hidden border shadow-sm">
+              {/* Date Group Header */}
+              <CardHeader className="py-3 px-4 bg-muted/40 border-b flex flex-row items-center justify-between gap-2 space-y-0">
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-primary shrink-0" />
+                  <span className="font-semibold text-xs sm:text-sm text-foreground">
+                    {group.displayDate}
+                  </span>
+                  <span className="text-[10px] sm:text-xs text-muted-foreground">
+                    ({group.items.length})
+                  </span>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                
+                {/* Day Summary */}
+                <div className="flex items-center gap-2 sm:gap-3 text-xs font-medium">
+                  {group.totalIncome > 0 && (
+                    <span className="text-emerald-500">
+                      +{formatCurrency(group.totalIncome)}
+                    </span>
+                  )}
+                  {group.totalExpense > 0 && (
+                    <span className="text-destructive">
+                      -{formatCurrency(group.totalExpense)}
+                    </span>
+                  )}
+                </div>
+              </CardHeader>
+
+              {/* Day Items */}
+              <CardContent className="p-0 divide-y">
+                {group.items.map(tx => (
+                  <div 
+                    key={tx.id} 
+                    className="flex items-center justify-between p-3 sm:px-4 hover:bg-muted/20 transition-colors group"
+                  >
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                      <div className={`flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-full border ${tx.type === 'Income' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-destructive/10 text-destructive border-destructive/20'}`}>
+                        {tx.type === 'Income' ? <ArrowUpIcon className="h-4 w-4 sm:h-5 sm:w-5" /> : <ArrowDownIcon className="h-4 w-4 sm:h-5 sm:w-5" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm sm:text-base leading-snug truncate text-foreground">
+                          {tx.description || tx.category_name || 'Transaksi'}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                          <span className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground/90">
+                            <Clock className="h-3 w-3" />
+                            {formatTimeOnly(tx.transaction_date) || "00:00"}
+                          </span>
+                          <span>•</span>
+                          <span className="font-medium text-foreground/80">{tx.category_name}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-2">
+                      <div className={`text-sm sm:text-base font-semibold ${tx.type === 'Income' ? 'text-emerald-500' : 'text-foreground'}`}>
+                        {tx.type === 'Income' ? '+' : '-'} {formatCurrency(tx.amount)}
+                      </div>
+                      <div className="flex items-center gap-0.5 sm:gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenEditDialog(tx)}
+                          className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-70 group-hover:opacity-100 transition-opacity"
+                          title="Edit transaksi"
+                        >
+                          <Pencil className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(tx.id, tx.description || tx.category_name)}
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-70 group-hover:opacity-100 transition-opacity"
+                          title="Hapus transaksi"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
     </div>
   );
 }
+
 
 
