@@ -54,14 +54,18 @@ import {
 export default function DashboardClient() {
   const { isOnline, isSyncing, syncNow } = useSync();
 
-  // Privacy Mode State (Mask Balances)
-  const [isPrivacyMode, setIsPrivacyMode] = useState(false);
+  // Privacy Mode State (Mask Balances - Default HIDE)
+  const [isPrivacyMode, setIsPrivacyMode] = useState(true);
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem("fintrack_privacy_mode");
       if (saved !== null) {
         setIsPrivacyMode(saved === "true");
+      } else {
+        // Default to TRUE (hide) on initial launch
+        setIsPrivacyMode(true);
+        localStorage.setItem("fintrack_privacy_mode", "true");
       }
     } catch {}
   }, []);
