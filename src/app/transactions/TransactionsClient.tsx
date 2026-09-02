@@ -73,17 +73,42 @@ export default function TransactionsClient() {
       const existingProduct = await db.products.where('barcode').equals(barcode).first();
 
       if (existingProduct) {
-        // Known product found in memory!
-        const now = new Date();
-        setDate(format(now, "yyyy-MM-dd"));
-        setTime(format(now, "HH:mm"));
-        setAmount(String(existingProduct.default_price));
-        setDescription(existingProduct.name);
-        setType("Expense");
-        setCategoryId(existingProduct.category_id || (expenseCategories[0]?.id || ""));
-        
-        toast.success(`Barang dikenali: "${existingProduct.name}" (${formatCurrency(existingProduct.default_price)})`);
-        setIsOpen(true);
+        // Known product found in memory -> LANGSUNG CATAT KE TRANSAKSI TANPA INPUT MANUAL!
+        const nowIso = new Date().toISOString();
+        const newTxId = uuidv4();
+        const catId = existingProduct.category_id || (expenseCategories[0]?.id || 'cat-exp-1');
+        const catName = categories.find(c => c.id === catId)?.name || existingProduct.category_name || 'Pengeluaran';
+
+        const txPayload: Transaction = {
+          id: newTxId,
+          category_id: catId,
+          type: 'Expense',
+          amount: Number(existingProduct.default_price),
+          description: existingProduct.name,
+          transaction_date: nowIso,
+          category_name: catName,
+          created_at: nowIso,
+        };
+
+        await db.transactions.add(txPayload);
+
+        await db.syncQueue.add({
+          operation: 'INSERT',
+          table: 'transactions',
+          payload: {
+            id: txPayload.id,
+            category_id: txPayload.category_id,
+            type: txPayload.type,
+            amount: txPayload.amount,
+            description: txPayload.description,
+            transaction_date: txPayload.transaction_date,
+          },
+          created_at: nowIso
+        });
+
+        toast.success(`Transaksi berhasil dicatat otomatis: "${existingProduct.name}" (${formatCurrency(existingProduct.default_price)})`, {
+          duration: 4000,
+        });
       } else {
         // New barcode -> Open registration dialog
         setScannedBarcode(barcode);
@@ -94,7 +119,7 @@ export default function TransactionsClient() {
         toast.info("Barcode baru terdeteksi! Masukkan nama & harga barang.");
       }
     } catch (err) {
-      toast.error("Gagal memeriksa data barcode.");
+      toast.error("Gagal memproses data barcode.");
     }
   };
 
