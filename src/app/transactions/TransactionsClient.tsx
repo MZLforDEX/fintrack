@@ -884,7 +884,11 @@ export default function TransactionsClient() {
                             {formatTimeOnly(tx.transaction_date) || "00:00"}
                           </span>
                           <span>•</span>
-                          <span className="font-medium text-foreground/80">{tx.category_name}</span>
+                          <span className="font-medium text-foreground/80">
+                            {categories.find(c => c.id === tx.category_id)?.name || 
+                             (tx.type === 'Expense' && tx.category_name === 'Beasiswa' ? 'Makanan & Minuman' : tx.category_name) || 
+                             (tx.type === 'Income' ? 'Pemasukan' : 'Pengeluaran')}
+                          </span>
                         </p>
                       </div>
                     </div>

@@ -9,6 +9,32 @@ import { Cloud, CloudOff, RefreshCw } from "lucide-react";
 
 const DEFAULT_USER_ID = "e4b67445-6a97-4864-bbd7-1febdde17db0";
 
+const LOCAL_CAT_NAME_MAP: Record<string, string> = {
+  'cat-inc-1': 'Gaji Pokok',
+  'cat-inc-2': 'Bonus & THR',
+  'cat-inc-3': 'Investasi & Dividen',
+  'cat-inc-4': 'Bisnis / Usaha',
+  'cat-inc-5': 'Freelance / Sampingan',
+  'cat-inc-6': 'Hadiah & Hibah',
+  'cat-inc-7': 'Pengembalian Dana (Refund)',
+  'cat-inc-8': 'Pemasukan Lainnya',
+  'cat-exp-1': 'Makanan & Minuman',
+  'cat-exp-2': 'Belanja Bulanan & Sembako',
+  'cat-exp-3': 'Transportasi & Bensin',
+  'cat-exp-4': 'Tagihan & Utilitas (Listrik, Air, Internet)',
+  'cat-exp-5': 'Tempat Tinggal (Sewa / Cicilan)',
+  'cat-exp-6': 'Kesehatan & Medis',
+  'cat-exp-7': 'Pendidikan & Kursus',
+  'cat-exp-8': 'Hiburan & Liburan',
+  'cat-exp-9': 'Belanja Pakaian & Pribadi',
+  'cat-exp-10': 'Keluarga & Anak',
+  'cat-exp-11': 'Sedekah, Infaq & Donasi',
+  'cat-exp-12': 'Cicilan & Hutang',
+  'cat-exp-13': 'Perawatan Diri & Salon',
+  'cat-exp-14': 'Servis Kendaraan',
+  'cat-exp-15': 'Pengeluaran Lainnya',
+};
+
 interface SyncContextType {
   isSyncing: boolean;
   isOnline: boolean;
@@ -32,18 +58,48 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const isSyncingRef = useRef(false);
   const supabase = createClient();
 
+  // Self-heal any incorrectly assigned categories in local DB
+  const repairMisassignedCategories = async () => {
+    try {
+      const localTxs = await db.transactions.toArray();
+      for (const tx of localTxs) {
+        if (tx.type === 'Expense' && (tx.category_name === 'Beasiswa' || tx.category_name === 'Gaji & Upah' || !tx.category_name)) {
+          const desc = (tx.description || '').toLowerCase();
+          let targetCatName = 'Makanan & Minuman';
+          let targetCatId = 'cat-exp-1';
+
+          if (desc.includes('bensin') || desc.includes('pertalite') || desc.includes('transport') || desc.includes('parkir')) {
+            targetCatName = 'Transportasi & Bensin';
+            targetCatId = 'cat-exp-3';
+          } else if (desc.includes('kos') || desc.includes('kontrakan') || desc.includes('sewa')) {
+            targetCatName = 'Tempat Tinggal (Sewa / Cicilan)';
+            targetCatId = 'cat-exp-5';
+          } else if (desc.includes('belanja') || desc.includes('sembako') || desc.includes('indomaret') || desc.includes('alfamart')) {
+            targetCatName = 'Belanja Bulanan & Sembako';
+            targetCatId = 'cat-exp-2';
+          } else if (desc.includes('listrik') || desc.includes('pln') || desc.includes('wifi') || desc.includes('pulsa')) {
+            targetCatName = 'Tagihan & Utilitas (Listrik, Air, Internet)';
+            targetCatId = 'cat-exp-4';
+          }
+
+          await db.transactions.update(tx.id, {
+            category_id: targetCatId,
+            category_name: targetCatName,
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Repair error:", e);
+    }
+  };
+
   // Helper to map category IDs between local and Supabase UUIDs
-  const getCategoryMap = async () => {
+  const getServerCategories = async () => {
     try {
       const { data: serverCats } = await supabase.from('categories').select('*');
-      const catMap = new Map<string, string>();
-      (serverCats || []).forEach((c: any) => {
-        catMap.set(c.id, c.id);
-        catMap.set(c.name.toLowerCase().trim(), c.id);
-      });
-      return { catMap, serverCats: serverCats || [] };
+      return serverCats || [];
     } catch {
-      return { catMap: new Map<string, string>(), serverCats: [] };
+      return [];
     }
   };
 
@@ -52,7 +108,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (!navigator.onLine) return;
 
     try {
-      // Get all pending operations to prevent overwriting local un-pushed changes
       const allPendingQueue = await db.syncQueue.toArray();
       setPendingCount(allPendingQueue.length);
 
@@ -84,10 +139,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       if (transactions && transactions.length > 0) {
         const formattedTxs = transactions
           .filter((tx: any) => !pendingDeletes.has(`transactions:${tx.id}`))
-          .map((tx: any) => ({
-            ...tx,
-            category_name: tx.categories?.name || 'Lainnya'
-          }));
+          .map((tx: any) => {
+            const rawCatName = tx.categories?.name;
+            const safeCatName = (tx.type === 'Expense' && rawCatName === 'Beasiswa') 
+              ? 'Makanan & Minuman' 
+              : (rawCatName || (tx.type === 'Income' ? 'Pemasukan' : 'Pengeluaran'));
+
+            return {
+              ...tx,
+              category_name: safeCatName
+            };
+          });
         
         const serverTxIds = new Set(formattedTxs.map((tx: any) => tx.id));
         const localTxs = await db.transactions.toArray();
@@ -159,8 +221,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     setIsSyncing(true);
     let successCount = 0;
 
-    const { catMap, serverCats } = await getCategoryMap();
-    const fallbackCatId = serverCats[0]?.id || "5df9a6a6-f851-4471-94b6-b9a9e2cb8bcc";
+    const serverCats = await getServerCategories();
+    const defaultExpenseCat = serverCats.find((c: any) => c.type === 'Expense') || serverCats[0];
+    const defaultIncomeCat = serverCats.find((c: any) => c.type === 'Income') || serverCats[0];
 
     for (const item of queue) {
       try {
@@ -171,10 +234,23 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
           // Normalize table-specific properties
           if (item.table === 'transactions') {
-            // Ensure valid UUID category_id
-            if (payload.category_id && (!payload.category_id.includes('-') || payload.category_id?.startsWith('cat-'))) {
-              payload.category_id = catMap.get(payload.category_id) || fallbackCatId;
+            // Find local category name
+            const localCat = await db.categories.get(payload.category_id);
+            const targetName = localCat?.name || LOCAL_CAT_NAME_MAP[payload.category_id] || '';
+            const targetType = localCat?.type || payload.type || 'Expense';
+
+            let matchedCat = serverCats.find(
+              (c: any) => c.type === targetType && targetName && c.name.toLowerCase().trim() === targetName.toLowerCase().trim()
+            );
+
+            if (!matchedCat) {
+              matchedCat = targetType === 'Expense' ? defaultExpenseCat : defaultIncomeCat;
             }
+
+            if (matchedCat) {
+              payload.category_id = matchedCat.id;
+            }
+
             // Normalize transaction_date
             if (payload.transaction_date) {
               const d = new Date(payload.transaction_date);
@@ -185,8 +261,14 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           }
 
           if (item.table === 'budgets') {
-            if (payload.category_id && (!payload.category_id.includes('-') || payload.category_id?.startsWith('cat-'))) {
-              payload.category_id = catMap.get(payload.category_id) || fallbackCatId;
+            const localCat = await db.categories.get(payload.category_id);
+            const targetName = localCat?.name || LOCAL_CAT_NAME_MAP[payload.category_id] || '';
+            let matchedCat = serverCats.find(
+              (c: any) => c.type === 'Expense' && targetName && c.name.toLowerCase().trim() === targetName.toLowerCase().trim()
+            ) || defaultExpenseCat;
+
+            if (matchedCat) {
+              payload.category_id = matchedCat.id;
             }
           }
 
@@ -253,9 +335,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     window.addEventListener("offline", handleOffline);
     window.addEventListener("focus", handleFocus);
 
-    // Initial setup
+    // Initial setup & auto-repair
     seedDefaultCategories();
     seedDefaultProducts();
+    repairMisassignedCategories();
     syncNow();
 
     // Auto sync interval every 12 seconds when online
@@ -295,4 +378,5 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     </SyncContext.Provider>
   );
 }
+
 
