@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, Transaction, Category } from "@/lib/db";
-import { format, parseISO } from "date-fns";
+import { db, Transaction } from "@/lib/db";
+import { format } from "date-fns";
 import { id as idLocale } from "date-fns/locale";
 import { formatCurrency } from "@/lib/utils";
-import { ArrowDownIcon, ArrowUpIcon, Plus } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, Plus, Trash2, Clock, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,14 +24,30 @@ export default function TransactionsClient() {
   const [amount, setAmount] = useState("");
   const [type, setType] = useState<'Income' | 'Expense'>("Expense");
   const [categoryId, setCategoryId] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  
+  // Date & Time states
+  const [date, setDate] = useState(() => {
+    const now = new Date();
+    return format(now, "yyyy-MM-dd");
+  });
+  const [time, setTime] = useState(() => {
+    const now = new Date();
+    return format(now, "HH:mm");
+  });
   const [description, setDescription] = useState("");
 
   const filteredCategories = categories.filter(c => c.type === type);
 
+  const handleOpenDialog = () => {
+    const now = new Date();
+    setDate(format(now, "yyyy-MM-dd"));
+    setTime(format(now, "HH:mm"));
+    setIsOpen(true);
+  };
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || !categoryId || !date) {
+    if (!amount || !categoryId || !date || !time) {
       toast.error("Mohon lengkapi data wajib.");
       return;
     }
@@ -39,13 +55,17 @@ export default function TransactionsClient() {
     const newId = uuidv4();
     const catName = categories.find(c => c.id === categoryId)?.name || 'Lainnya';
 
+    // Combine date and time
+    const dateTimeString = `${date}T${time}:00`;
+    const finalDateTime = new Date(dateTimeString).toISOString();
+
     const payload: Transaction = {
       id: newId,
       category_id: categoryId,
       type,
       amount: Number(amount),
-      description,
-      transaction_date: date,
+      description: description.trim(),
+      transaction_date: finalDateTime,
       category_name: catName,
       created_at: new Date().toISOString()
     };
@@ -78,46 +98,98 @@ export default function TransactionsClient() {
     }
   };
 
+  const handleDelete = async (id: string, desc?: string) => {
+    try {
+      await db.transactions.delete(id);
+      toast.success(`Transaksi ${desc ? `"${desc}"` : ''} berhasil dihapus.`);
+    } catch (err) {
+      toast.error("Gagal menghapus transaksi.");
+    }
+  };
+
+  const formatTransactionTime = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      return format(d, "d MMM yyyy, HH:mm", { locale: idLocale });
+    } catch {
+      return dateStr;
+    }
+  };
+
   return (
     <div className="flex-1 space-y-6 p-4 sm:space-y-8 sm:p-8 sm:pt-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Transaksi</h2>
+        <div>
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Transaksi</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Catat pemasukan dan pengeluaran beserta rincian tanggal & jam transaksi.
+          </p>
+        </div>
         
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogTrigger asChild>
-            <Button size="sm" className="gap-1">
+            <Button size="sm" onClick={handleOpenDialog} className="gap-1.5 text-xs sm:text-sm">
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">Tambah Transaksi</span>
               <span className="sm:hidden">Tambah</span>
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="sm:max-w-[450px]">
             <DialogHeader>
               <DialogTitle>Tambah Transaksi Baru</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleAdd} className="space-y-4 pt-4">
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={handleAdd} className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label>Tipe Transaksi</Label>
+                <Select value={type} onValueChange={(v: 'Income'|'Expense') => { setType(v); setCategoryId(""); }}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Expense">Pengeluaran</SelectItem>
+                    <SelectItem value="Income">Pemasukan</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label>Tipe</Label>
-                  <Select value={type} onValueChange={(v: 'Income'|'Expense') => { setType(v); setCategoryId(""); }}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Expense">Pengeluaran</SelectItem>
-                      <SelectItem value="Income">Pemasukan</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label className="flex items-center gap-1.5 text-xs sm:text-sm">
+                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                    Tanggal
+                  </Label>
+                  <Input 
+                    type="date" 
+                    value={date} 
+                    onChange={(e) => setDate(e.target.value)} 
+                    required 
+                  />
                 </div>
                 <div className="space-y-2">
-                  <Label>Tanggal</Label>
-                  <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+                  <Label className="flex items-center gap-1.5 text-xs sm:text-sm">
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                    Jam (Waktu)
+                  </Label>
+                  <Input 
+                    type="time" 
+                    value={time} 
+                    onChange={(e) => setTime(e.target.value)} 
+                    required 
+                  />
                 </div>
               </div>
 
               <div className="space-y-2">
                 <Label>Nominal (Rp)</Label>
-                <Input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} required placeholder="Contoh: 50000" />
+                <Input 
+                  type="number" 
+                  min="0" 
+                  value={amount} 
+                  onChange={(e) => setAmount(e.target.value)} 
+                  required 
+                  placeholder="Contoh: 50000" 
+                />
               </div>
 
               <div className="space-y-2">
@@ -140,7 +212,11 @@ export default function TransactionsClient() {
 
               <div className="space-y-2">
                 <Label>Keterangan (Opsional)</Label>
-                <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Contoh: Beli makan siang" />
+                <Input 
+                  value={description} 
+                  onChange={(e) => setDescription(e.target.value)} 
+                  placeholder="Contoh: Makan siang, Beli kopi, dll" 
+                />
               </div>
 
               <Button type="submit" className="w-full">Simpan Transaksi</Button>
@@ -150,29 +226,54 @@ export default function TransactionsClient() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Riwayat Transaksi</CardTitle>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base sm:text-lg">Riwayat Transaksi</CardTitle>
+            <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-muted text-muted-foreground">
+              {transactions.length} Transaksi
+            </span>
+          </div>
         </CardHeader>
         <CardContent>
           {transactions.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">Belum ada data transaksi.</div>
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              Belum ada riwayat transaksi. Klik <strong>+ Tambah Transaksi</strong> untuk mencatat.
+            </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {transactions.map(tx => (
-                <div key={tx.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
-                  <div className="flex items-center gap-4">
+                <div 
+                  key={tx.id} 
+                  className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors group"
+                >
+                  <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                     <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${tx.type === 'Income' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-destructive/10 text-destructive border-destructive/20'}`}>
                       {tx.type === 'Income' ? <ArrowUpIcon className="h-5 w-5" /> : <ArrowDownIcon className="h-5 w-5" />}
                     </div>
-                    <div>
-                      <p className="font-medium leading-none">{tx.description || tx.category_name || 'Transaksi'}</p>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {format(new Date(tx.transaction_date), "d MMM yyyy", { locale: idLocale })} • {tx.category_name}
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm sm:text-base leading-snug truncate">
+                        {tx.description || tx.category_name || 'Transaksi'}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>{formatTransactionTime(tx.transaction_date)}</span>
+                        <span>•</span>
+                        <span className="font-medium text-foreground/80">{tx.category_name}</span>
                       </p>
                     </div>
                   </div>
-                  <div className={`font-semibold ${tx.type === 'Income' ? 'text-emerald-500' : 'text-foreground'}`}>
-                    {tx.type === 'Income' ? '+' : '-'} {formatCurrency(tx.amount)}
+                  <div className="flex items-center gap-3 shrink-0 ml-2">
+                    <div className={`text-sm sm:text-base font-semibold ${tx.type === 'Income' ? 'text-emerald-500' : 'text-foreground'}`}>
+                      {tx.type === 'Income' ? '+' : '-'} {formatCurrency(tx.amount)}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDelete(tx.id, tx.description || tx.category_name)}
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-50 group-hover:opacity-100 transition-opacity"
+                      title="Hapus transaksi"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -183,3 +284,4 @@ export default function TransactionsClient() {
     </div>
   );
 }
+

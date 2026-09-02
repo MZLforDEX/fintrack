@@ -145,7 +145,7 @@ export default function DashboardClient() {
                         {tx.description || tx.category_name || 'Transaksi'}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {format(new Date(tx.transaction_date), "d MMM yyyy", { locale: id })}
+                        {format(new Date(tx.transaction_date), "d MMM yyyy, HH:mm", { locale: id })}
                       </p>
                     </div>
                     <div className={`ml-auto font-medium ${tx.type === 'Income' ? 'text-emerald-500' : ''}`}>
