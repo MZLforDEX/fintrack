@@ -6,9 +6,8 @@ import {
   LayoutDashboard, 
   Receipt, 
   Tags,
-  Wallet, 
-  Target, 
-  PieChart 
+  PieChart,
+  MoreHorizontal
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -19,9 +18,8 @@ export function MobileNav() {
     { title: "Home", href: "/", icon: LayoutDashboard },
     { title: "Transaksi", href: "/transactions", icon: Receipt },
     { title: "Kategori", href: "/categories", icon: Tags },
-    { title: "Budget", href: "/budgets", icon: Wallet },
-    { title: "Goals", href: "/goals", icon: Target },
     { title: "Analytics", href: "/analytics", icon: PieChart },
+    { title: "Lainnya", href: "/more", icon: MoreHorizontal },
   ];
 
   return (
