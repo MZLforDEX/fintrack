@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 
 export default function AnalyticsClient() {
   const transactions = useLiveQuery(() => db.transactions.toArray()) || [];
+  const categories = useLiveQuery(() => db.categories.toArray()) || [];
 
   // Group by Month (Last 6 months)
   const monthlyData: Record<string, { month: string, income: number, expense: number }> = {};
@@ -26,15 +27,17 @@ export default function AnalyticsClient() {
 
   transactions.forEach((tx: any) => {
     const date = new Date(tx.transaction_date);
-    const monthKey = date.toLocaleString('id-ID', { month: 'short', year: 'numeric' });
+    const monthKey = !isNaN(date.getTime()) 
+      ? date.toLocaleString('id-ID', { month: 'short', year: 'numeric' })
+      : 'Bulan Ini';
     
     if (monthlyData[monthKey]) {
       if (tx.type === 'Income') monthlyData[monthKey].income += Number(tx.amount);
       if (tx.type === 'Expense') monthlyData[monthKey].expense += Number(tx.amount);
     }
 
-    if (tx.type === 'Expense' && date >= currentMonthStart) {
-      const catName = tx.category_name || 'Lainnya';
+    if (tx.type === 'Expense' && (!isNaN(date.getTime()) ? date >= currentMonthStart : true)) {
+      const catName = categories.find(c => c.id === tx.category_id)?.name || tx.category_name || 'Lainnya';
       categoryData[catName] = (categoryData[catName] || 0) + Number(tx.amount);
     }
   });

@@ -749,10 +749,17 @@ export default function DashboardClient() {
                     </div>
                     <div className="ml-4 space-y-1">
                       <p className="text-sm font-medium leading-none">
-                        {tx.description || tx.category_name || 'Transaksi'}
+                        {tx.description || categories.find(c => c.id === tx.category_id)?.name || tx.category_name || 'Transaksi'}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {format(new Date(tx.transaction_date), "d MMM yyyy, HH:mm", { locale: id })}
+                        {(() => {
+                          try {
+                            const d = new Date(tx.transaction_date);
+                            return isNaN(d.getTime()) ? tx.transaction_date : format(d, "d MMM yyyy, HH:mm", { locale: id });
+                          } catch {
+                            return tx.transaction_date || "-";
+                          }
+                        })()}
                       </p>
                     </div>
                     <div className={`ml-auto font-medium ${tx.type === 'Income' ? 'text-emerald-500' : ''}`}>

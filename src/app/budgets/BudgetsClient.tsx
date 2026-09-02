@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, Budget } from "@/lib/db";
-import { Plus, Wallet } from "lucide-react";
+import { Plus, Wallet, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -63,6 +63,30 @@ export default function BudgetsClient() {
       setAmount("");
     } catch (err) {
       toast.error("Gagal menyimpan budget. Mungkin budget untuk kategori ini di bulan yang sama sudah ada.");
+    }
+  };
+
+  const handleDeleteBudget = async (id: string, catName?: string) => {
+    try {
+      await db.budgets.delete(id);
+      
+      const pendingItems = await db.syncQueue.toArray();
+      for (const item of pendingItems) {
+        if (item.table === 'budgets' && item.payload?.id === id) {
+          await db.syncQueue.delete(item.id!);
+        }
+      }
+
+      await db.syncQueue.add({
+        operation: 'DELETE',
+        table: 'budgets',
+        payload: { id },
+        created_at: new Date().toISOString()
+      });
+
+      toast.success(`Budget "${catName || 'Kategori'}" berhasil dihapus.`);
+    } catch (err) {
+      toast.error("Gagal menghapus budget.");
     }
   };
 
@@ -132,6 +156,8 @@ export default function BudgetsClient() {
           </div>
         ) : (
           budgets.map(budget => {
+            const displayCatName = categories.find(c => c.id === budget.category_id)?.name || budget.category_name || 'Kategori';
+            
             // Calculate spent
             const spent = transactions
               .filter(tx => {
@@ -146,11 +172,24 @@ export default function BudgetsClient() {
             const isWarning = percentage >= 80;
 
             return (
-              <Card key={budget.id}>
+              <Card key={budget.id} className="relative group hover:shadow-md transition-shadow">
                 <CardHeader className="pb-2">
                   <div className="flex justify-between items-start">
-                    <CardTitle className="text-lg">{budget.category_name}</CardTitle>
-                    <span className="text-xs px-2 py-1 bg-muted rounded-full font-medium">Bulan {budget.month}/{budget.year}</span>
+                    <div>
+                      <CardTitle className="text-lg">{displayCatName}</CardTitle>
+                      <span className="text-xs px-2 py-0.5 bg-muted rounded-full font-medium inline-block mt-1">
+                        Bulan {budget.month}/{budget.year}
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDeleteBudget(budget.id, displayCatName)}
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-70 group-hover:opacity-100 transition-opacity"
+                      title="Hapus budget"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                   <CardDescription>Limit: {formatCurrency(budget.amount)}</CardDescription>
                 </CardHeader>
