@@ -1,8 +1,30 @@
 "use client";
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowDownIcon, ArrowUpIcon, WalletIcon, TargetIcon, Activity, Cloud, WifiOff, RefreshCw, Plus, ScanBarcode, PackagePlus, Barcode } from 'lucide-react';
+import { 
+  ArrowDownIcon, 
+  ArrowUpIcon, 
+  WalletIcon, 
+  TargetIcon, 
+  Activity, 
+  Cloud, 
+  WifiOff, 
+  RefreshCw, 
+  Plus, 
+  ScanBarcode, 
+  PackagePlus, 
+  Barcode,
+  Eye,
+  EyeOff,
+  Receipt,
+  Sparkles,
+  TrendingUp,
+  TrendingDown,
+  AlertTriangle,
+  CheckCircle,
+  Lightbulb
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -17,6 +39,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Transaction, Product } from '@/lib/db';
 import { useSync } from '@/components/providers/SyncProvider';
 import { BarcodeScannerModal } from '@/components/scanner/BarcodeScannerModal';
+import { ReceiptScannerModal } from '@/components/scanner/ReceiptScannerModal';
 import { 
   BarChart, 
   Bar, 
@@ -30,6 +53,31 @@ import {
 
 export default function DashboardClient() {
   const { isOnline, isSyncing, syncNow } = useSync();
+
+  // Privacy Mode State (Mask Balances)
+  const [isPrivacyMode, setIsPrivacyMode] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("fintrack_privacy_mode");
+      if (saved !== null) {
+        setIsPrivacyMode(saved === "true");
+      }
+    } catch {}
+  }, []);
+
+  const togglePrivacyMode = () => {
+    const next = !isPrivacyMode;
+    setIsPrivacyMode(next);
+    try {
+      localStorage.setItem("fintrack_privacy_mode", String(next));
+    } catch {}
+    if (next) {
+      toast.info("Mode Privasi Aktif: Saldo disembunyikan.");
+    } else {
+      toast.info("Mode Privasi Nonaktif: Saldo ditampilkan.");
+    }
+  };
 
   // Quick Add Modal State
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -48,6 +96,9 @@ export default function DashboardClient() {
   const [productName, setProductName] = useState('');
   const [productPrice, setProductPrice] = useState('');
   const [productCategory, setProductCategory] = useState('');
+
+  // Receipt Scanner State
+  const [isReceiptScannerOpen, setIsReceiptScannerOpen] = useState(false);
 
   // Fetch from local Dexie DB
   const allTransactions = useLiveQuery(() => db.transactions.toArray()) || [];
@@ -235,6 +286,43 @@ export default function DashboardClient() {
       toast.error('Gagal menyimpan barang baru.');
     }
   };
+
+  const handleSaveReceiptTransaction = async (data: {
+    amount: number;
+    description: string;
+    category_id: string;
+    transaction_date: string;
+  }) => {
+    const catName = categories.find(c => c.id === data.category_id)?.name || 'Pengeluaran';
+    const nowIso = new Date().toISOString();
+    const newTxId = uuidv4();
+
+    const txPayload: Transaction = {
+      id: newTxId,
+      category_id: data.category_id,
+      type: 'Expense',
+      amount: data.amount,
+      description: data.description,
+      transaction_date: data.transaction_date,
+      category_name: catName,
+      created_at: nowIso,
+    };
+
+    await db.transactions.add(txPayload);
+    await db.syncQueue.add({
+      operation: 'INSERT',
+      table: 'transactions',
+      payload: {
+        id: txPayload.id,
+        category_id: txPayload.category_id,
+        type: txPayload.type,
+        amount: txPayload.amount,
+        description: txPayload.description || '',
+        transaction_date: txPayload.transaction_date,
+      },
+      created_at: nowIso,
+    });
+  };
   
   let totalBalance = 0;
   let currentMonthIncome = 0;
@@ -295,6 +383,77 @@ export default function DashboardClient() {
     .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime())
     .slice(0, 5);
 
+  // Mask currency helper for Privacy Mode
+  const maskAmount = (val: number) => {
+    if (isPrivacyMode) return 'Rp •••••••';
+    return formatCurrency(val);
+  };
+
+  // Smart Financial Insights Computations
+  const smartInsights = useMemo(() => {
+    const currentMonthExpenses = allTransactions.filter(
+      tx => tx.type === 'Expense' && tx.transaction_date >= firstDayOfMonth
+    );
+
+    // 1. Group by category to find top expense
+    const categoryTotals: Record<string, { name: string; amount: number }> = {};
+    currentMonthExpenses.forEach(tx => {
+      const catId = tx.category_id || 'other';
+      const catName = tx.category_name || categories.find(c => c.id === catId)?.name || 'Lainnya';
+      if (!categoryTotals[catId]) {
+        categoryTotals[catId] = { name: catName, amount: 0 };
+      }
+      categoryTotals[catId].amount += Number(tx.amount);
+    });
+
+    const categoryList = Object.values(categoryTotals).sort((a, b) => b.amount - a.amount);
+    const topCategory = categoryList[0] || null;
+    const topCategoryPercent = currentMonthExpense > 0 && topCategory
+      ? Math.round((topCategory.amount / currentMonthExpense) * 100)
+      : 0;
+
+    // 2. Savings Rate & Health Score
+    const savingsRate = currentMonthIncome > 0
+      ? Math.round(((currentMonthIncome - currentMonthExpense) / currentMonthIncome) * 100)
+      : (currentMonthExpense === 0 ? 100 : 0);
+
+    let healthScore = 50;
+    let healthLabel = 'Cukup Sehat';
+    let healthColor = 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/20';
+
+    if (savingsRate >= 40) {
+      healthScore = 95;
+      healthLabel = 'Sangat Sehat';
+      healthColor = 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+    } else if (savingsRate >= 20) {
+      healthScore = 80;
+      healthLabel = 'Sehat & Terkendali';
+      healthColor = 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+    } else if (savingsRate >= 5) {
+      healthScore = 65;
+      healthLabel = 'Cukup Waspada';
+      healthColor = 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/20';
+    } else {
+      healthScore = 35;
+      healthLabel = 'Perlu Berhemat';
+      healthColor = 'text-rose-600 dark:text-rose-400 bg-rose-500/10 border-rose-500/20';
+    }
+
+    // 3. Daily Burn Rate
+    const dayOfMonth = Math.max(1, new Date().getDate());
+    const dailyAverage = Math.round(currentMonthExpense / dayOfMonth);
+
+    return {
+      savingsRate,
+      healthScore,
+      healthLabel,
+      healthColor,
+      topCategory,
+      topCategoryPercent,
+      dailyAverage,
+    };
+  }, [allTransactions, currentMonthIncome, currentMonthExpense, firstDayOfMonth, categories]);
+
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
@@ -320,47 +479,72 @@ export default function DashboardClient() {
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h2>
 
-        {/* Small Status Indicator */}
-        <button
-          type="button"
-          onClick={() => isOnline && !isSyncing && syncNow()}
-          disabled={!isOnline || isSyncing}
-          className="transition-all hover:opacity-80 active:scale-95 focus:outline-none"
-          title={!isOnline ? "Aplikasi sedang offline (Data tersimpan di perangkat lokal)" : isSyncing ? "Sedang menyinkronkan data ke cloud..." : "Online • Klik untuk sinkronkan data ke cloud"}
-        >
-          {!isOnline ? (
-            <div className="inline-flex items-center gap-1 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-              <WifiOff className="h-3 w-3" />
-              <span>Offline</span>
-            </div>
-          ) : isSyncing ? (
-            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 animate-pulse">
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              <span>Sinkron...</span>
-            </div>
-          ) : (
-            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-              </span>
-              <Cloud className="h-3 w-3" />
-              <span>Online</span>
-            </div>
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Privacy Toggle Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={togglePrivacyMode}
+            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            title={isPrivacyMode ? "Tampilkan Saldo" : "Sembunyikan Saldo (Mode Privasi)"}
+          >
+            {isPrivacyMode ? <EyeOff className="h-3.5 w-3.5 text-amber-500" /> : <Eye className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{isPrivacyMode ? "Buka Saldo" : "Sembunyikan"}</span>
+          </Button>
+
+          {/* Small Status Indicator */}
+          <button
+            type="button"
+            onClick={() => isOnline && !isSyncing && syncNow()}
+            disabled={!isOnline || isSyncing}
+            className="transition-all hover:opacity-80 active:scale-95 focus:outline-none"
+            title={!isOnline ? "Aplikasi sedang offline (Data tersimpan di perangkat lokal)" : isSyncing ? "Sedang menyinkronkan data ke cloud..." : "Online • Klik untuk sinkronkan data ke cloud"}
+          >
+            {!isOnline ? (
+              <div className="inline-flex items-center gap-1 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                <WifiOff className="h-3 w-3" />
+                <span>Offline</span>
+              </div>
+            ) : isSyncing ? (
+              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 animate-pulse">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                <span>Sinkron...</span>
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                </span>
+                <Cloud className="h-3 w-3" />
+                <span>Online</span>
+              </div>
+            )}
+          </button>
+        </div>
       </div>
       
+      {/* 4 Top Metric Cards */}
       <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
         {/* Total Balance */}
         <Card className="hover:shadow-lg transition-shadow col-span-2 sm:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Saldo</CardTitle>
+            <div className="flex items-center gap-1.5">
+              <CardTitle className="text-sm font-medium">Total Saldo</CardTitle>
+              <button 
+                type="button" 
+                onClick={togglePrivacyMode}
+                className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded"
+                title={isPrivacyMode ? "Tampilkan Saldo" : "Sembunyikan Saldo"}
+              >
+                {isPrivacyMode ? <EyeOff className="h-3.5 w-3.5 text-amber-500" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            </div>
             <WalletIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">{formatCurrency(totalBalance)}</div>
+            <div className="text-2xl font-bold text-primary">{maskAmount(totalBalance)}</div>
             <p className="text-xs text-muted-foreground mt-1">
               Keseluruhan saldo saat ini
             </p>
@@ -374,7 +558,7 @@ export default function DashboardClient() {
             <ArrowUpIcon className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-lg sm:text-2xl font-bold text-emerald-500">{formatCurrency(currentMonthIncome)}</div>
+            <div className="text-lg sm:text-2xl font-bold text-emerald-500">{maskAmount(currentMonthIncome)}</div>
             <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">
               Bulan ini
             </p>
@@ -388,7 +572,7 @@ export default function DashboardClient() {
             <ArrowDownIcon className="h-4 w-4 text-destructive" />
           </CardHeader>
           <CardContent>
-            <div className="text-lg sm:text-2xl font-bold text-destructive">{formatCurrency(currentMonthExpense)}</div>
+            <div className="text-lg sm:text-2xl font-bold text-destructive">{maskAmount(currentMonthExpense)}</div>
             <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">
               Bulan ini
             </p>
@@ -409,6 +593,90 @@ export default function DashboardClient() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Smart Financial Insights Widget */}
+      <Card className="border shadow-sm bg-gradient-to-br from-card via-card to-primary/5">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div>
+                <CardTitle className="text-base sm:text-lg">Analisis Pintar & Wawasan Keuangan</CardTitle>
+                <CardDescription className="text-xs">
+                  Ringkasan kesehatan finansial dan pola pengeluaran bulan ini
+                </CardDescription>
+              </div>
+            </div>
+
+            {/* Health Score Badge */}
+            <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${smartInsights.healthColor} self-start sm:self-auto`}>
+              <CheckCircle className="h-3.5 w-3.5" />
+              <span>Skor: {smartInsights.healthScore}/100 • {smartInsights.healthLabel}</span>
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent className="pt-0">
+          <div className="grid gap-3 sm:grid-cols-3 pt-2 border-t text-xs sm:text-sm">
+            {/* Savings Rate */}
+            <div className="p-3 rounded-xl bg-muted/30 border space-y-1">
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span className="text-xs">Tingkat Tabungan</span>
+                <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
+              </div>
+              <div className="text-lg sm:text-xl font-bold text-foreground">
+                {smartInsights.savingsRate}%
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Dari total pemasukan yang tersisa
+              </p>
+            </div>
+
+            {/* Top Expense Category */}
+            <div className="p-3 rounded-xl bg-muted/30 border space-y-1">
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span className="text-xs">Kategori Terboros</span>
+                <TrendingDown className="h-3.5 w-3.5 text-rose-500" />
+              </div>
+              <div className="text-base sm:text-lg font-bold text-foreground truncate">
+                {smartInsights.topCategory ? smartInsights.topCategory.name : "Belum Ada"}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {smartInsights.topCategory ? `${smartInsights.topCategoryPercent}% (${maskAmount(smartInsights.topCategory.amount)})` : "Tidak ada pengeluaran"}
+              </p>
+            </div>
+
+            {/* Daily Burn Rate */}
+            <div className="p-3 rounded-xl bg-muted/30 border space-y-1">
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span className="text-xs">Rata-Rata Harian</span>
+                <Activity className="h-3.5 w-3.5 text-primary" />
+              </div>
+              <div className="text-base sm:text-lg font-bold text-foreground">
+                {maskAmount(smartInsights.dailyAverage)} <span className="text-xs font-normal text-muted-foreground">/hari</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Kecepatan belanja harian bulan ini
+              </p>
+            </div>
+          </div>
+
+          {/* Actionable Advice Tip */}
+          <div className="flex items-start gap-2.5 mt-3 p-3 rounded-xl bg-primary/5 border border-primary/10 text-xs text-foreground/90">
+            <Lightbulb className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold text-primary">Saran Cerdas: </span>
+              {smartInsights.savingsRate >= 30
+                ? "Pola keuangan Anda sangat sehat! Pertimbangkan untuk mengalokasikan sebagian surplus dana ke Financial Goals atau Tabungan Darurat."
+                : smartInsights.topCategory
+                ? `Pengeluaran kategori "${smartInsights.topCategory.name}" mendominasi ${smartInsights.topCategoryPercent}% dari belanja Anda. Mengurangi sedikit pos ini dapat meningkatkan tabungan bulanan.`
+                : "Mulai catat transaksi secara rutin untuk mendapatkan wawasan dan pola keuangan otomatis yang lebih akurat."}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         {/* Aktivitas Keuangan Chart */}
@@ -484,7 +752,7 @@ export default function DashboardClient() {
                       </p>
                     </div>
                     <div className={`ml-auto font-medium ${tx.type === 'Income' ? 'text-emerald-500' : ''}`}>
-                      {tx.type === 'Income' ? '+' : '-'} {formatCurrency(Number(tx.amount))}
+                      {isPrivacyMode ? '••••••' : (tx.type === 'Income' ? '+' : '-') + ' ' + formatCurrency(Number(tx.amount))}
                     </div>
                   </div>
                 ))
@@ -509,7 +777,7 @@ export default function DashboardClient() {
 
       {/* Quick Add Transaction Modal */}
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
             <DialogTitle className="text-base sm:text-lg">
               Tambah Transaksi Cepat
@@ -605,8 +873,8 @@ export default function DashboardClient() {
               />
             </div>
 
-            {/* Actions: Scan Barcode & Simpan Transaksi */}
-            <div className="flex items-center gap-2 pt-2">
+            {/* Quick Action Tools Barcode & Receipt */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
               <Button
                 type="button"
                 variant="outline"
@@ -614,17 +882,31 @@ export default function DashboardClient() {
                   setIsAddOpen(false);
                   setIsScannerOpen(true);
                 }}
-                className="flex-1 gap-1.5 border-primary/40 hover:bg-primary/10 text-primary font-medium"
-                title="Pindai barcode barang dengan kamera"
+                className="gap-1.5 border-primary/30 hover:bg-primary/10 text-primary font-medium text-xs"
+                title="Pindai barcode barang"
               >
                 <ScanBarcode className="h-4 w-4" />
                 Scan Barcode
               </Button>
 
-              <Button type="submit" className="flex-1">
-                Simpan Transaksi
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setIsAddOpen(false);
+                  setIsReceiptScannerOpen(true);
+                }}
+                className="gap-1.5 border-primary/30 hover:bg-primary/10 text-primary font-medium text-xs"
+                title="Foto struk belanja kasir"
+              >
+                <Receipt className="h-4 w-4" />
+                Scan Struk
               </Button>
             </div>
+
+            <Button type="submit" className="w-full font-semibold">
+              Simpan Transaksi
+            </Button>
           </form>
         </DialogContent>
       </Dialog>
@@ -634,6 +916,14 @@ export default function DashboardClient() {
         isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
         onScanSuccess={handleBarcodeDetected}
+      />
+
+      {/* Receipt OCR Scanner Modal */}
+      <ReceiptScannerModal
+        isOpen={isReceiptScannerOpen}
+        onClose={() => setIsReceiptScannerOpen(false)}
+        onSaveTransaction={handleSaveReceiptTransaction}
+        categories={categories}
       />
 
       {/* Register New Scanned Product Dialog */}
