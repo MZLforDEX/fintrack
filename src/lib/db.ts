@@ -77,4 +77,42 @@ export class FinTrackDB extends Dexie {
   }
 }
 
+export const DEFAULT_CATEGORIES: Category[] = [
+  // --- Kategori Pemasukan (Income) ---
+  { id: 'cat-inc-1', name: 'Gaji Pokok', type: 'Income', icon: 'Briefcase' },
+  { id: 'cat-inc-2', name: 'Bonus & THR', type: 'Income', icon: 'Gift' },
+  { id: 'cat-inc-3', name: 'Investasi & Dividen', type: 'Income', icon: 'TrendingUp' },
+  { id: 'cat-inc-4', name: 'Bisnis / Usaha', type: 'Income', icon: 'Store' },
+  { id: 'cat-inc-5', name: 'Freelance / Sampingan', type: 'Income', icon: 'Laptop' },
+  { id: 'cat-inc-6', name: 'Hadiah & Hibah', type: 'Income', icon: 'HeartHandshake' },
+  { id: 'cat-inc-7', name: 'Pengembalian Dana (Refund)', type: 'Income', icon: 'RotateCcw' },
+  { id: 'cat-inc-8', name: 'Pemasukan Lainnya', type: 'Income', icon: 'Coins' },
+
+  // --- Kategori Pengeluaran (Expense) ---
+  { id: 'cat-exp-1', name: 'Makanan & Minuman', type: 'Expense', icon: 'Utensils' },
+  { id: 'cat-exp-2', name: 'Belanja Bulanan & Sembako', type: 'Expense', icon: 'ShoppingCart' },
+  { id: 'cat-exp-3', name: 'Transportasi & Bensin', type: 'Expense', icon: 'Car' },
+  { id: 'cat-exp-4', name: 'Tagihan & Utilitas (Listrik, Air, Internet)', type: 'Expense', icon: 'Zap' },
+  { id: 'cat-exp-5', name: 'Tempat Tinggal (Sewa / Cicilan)', type: 'Expense', icon: 'Home' },
+  { id: 'cat-exp-6', name: 'Kesehatan & Medis', type: 'Expense', icon: 'Stethoscope' },
+  { id: 'cat-exp-7', name: 'Pendidikan & Kursus', type: 'Expense', icon: 'GraduationCap' },
+  { id: 'cat-exp-8', name: 'Hiburan & Liburan', type: 'Expense', icon: 'Gamepad2' },
+  { id: 'cat-exp-9', name: 'Belanja Pakaian & Pribadi', type: 'Expense', icon: 'Shirt' },
+  { id: 'cat-exp-10', name: 'Keluarga & Anak', type: 'Expense', icon: 'Users' },
+  { id: 'cat-exp-11', name: 'Sedekah, Infaq & Donasi', type: 'Expense', icon: 'Heart' },
+  { id: 'cat-exp-12', name: 'Cicilan & Hutang', type: 'Expense', icon: 'CreditCard' },
+  { id: 'cat-exp-13', name: 'Perawatan Diri & Salon', type: 'Expense', icon: 'Sparkles' },
+  { id: 'cat-exp-14', name: 'Servis Kendaraan', type: 'Expense', icon: 'Wrench' },
+  { id: 'cat-exp-15', name: 'Pengeluaran Lainnya', type: 'Expense', icon: 'MoreHorizontal' },
+];
+
+export async function seedDefaultCategories(force: boolean = false) {
+  const count = await db.categories.count();
+  if (count === 0 || force) {
+    for (const cat of DEFAULT_CATEGORIES) {
+      await db.categories.put(cat);
+    }
+  }
+}
+
 export const db = new FinTrackDB();
