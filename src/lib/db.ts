@@ -129,10 +129,8 @@ export const DEFAULT_CATEGORIES: Category[] = [
 
 export async function seedDefaultCategories(force: boolean = false) {
   const count = await db.categories.count();
-  if (count === 0 || force) {
-    for (const cat of DEFAULT_CATEGORIES) {
-      await db.categories.put(cat);
-    }
+  if (count < DEFAULT_CATEGORIES.length || force) {
+    await db.categories.bulkPut(DEFAULT_CATEGORIES);
   }
 }
 
@@ -252,10 +250,8 @@ export const DEFAULT_PRODUCTS: Product[] = [
 
 export async function seedDefaultProducts(force: boolean = false) {
   const count = await db.products.count();
-  if (count === 0 || force) {
-    for (const prod of DEFAULT_PRODUCTS) {
-      await db.products.put(prod);
-    }
+  if (count < DEFAULT_PRODUCTS.length || force) {
+    await db.products.bulkPut(DEFAULT_PRODUCTS);
   }
 }
 

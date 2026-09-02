@@ -50,7 +50,10 @@ export default function MoreClient() {
   const [editCategoryId, setEditCategoryId] = useState('');
 
   useEffect(() => {
-    seedDefaultProducts();
+    const init = async () => {
+      await seedDefaultProducts();
+    };
+    init();
   }, []);
 
   const handleOpenAdd = () => {
@@ -279,9 +282,23 @@ export default function MoreClient() {
         </CardHeader>
 
         <CardContent className="p-0 border-t">
-          {filteredProducts.length === 0 ? (
+          {products.length === 0 ? (
+            <div className="text-center py-16 px-4 space-y-3">
+              <Barcode className="h-10 w-10 mx-auto opacity-30 text-primary" />
+              <div>
+                <p className="font-semibold text-foreground text-sm">Belum ada data barcode tersimpan</p>
+                <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+                  Muat 100 data barcode produk makanan, minuman, dan kebutuhan harian bawaan untuk memulai.
+                </p>
+              </div>
+              <Button size="sm" onClick={handleResetDefault} className="gap-1.5 mt-2">
+                <RotateCcw className="h-3.5 w-3.5" />
+                Muat 100 Data Barcode Bawaan
+              </Button>
+            </div>
+          ) : filteredProducts.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground text-sm">
-              Tidak ada produk yang cocok dengan pencarian.
+              Tidak ada produk yang cocok dengan pencarian &quot;{searchQuery}&quot;.
             </div>
           ) : (
             <div className="divide-y max-h-[600px] overflow-y-auto">
