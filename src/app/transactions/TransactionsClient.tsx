@@ -1,12 +1,20 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, Transaction, Product, seedDefaultProducts } from "@/lib/db";
 import { createClient } from "@/lib/supabase/client";
 import { format } from "date-fns";
 import { id as idLocale } from "date-fns/locale";
 import { formatCurrency } from "@/lib/utils";
+import { 
+  buildTransactionDateTime, 
+  format24HourTime, 
+  getLocalDateString, 
+  getLocal24TimeString, 
+  getDateGroupLabel, 
+  parseTransactionDate 
+} from "@/lib/dateUtils";
 import { 
   ArrowDownIcon, 
   ArrowUpIcon, 
@@ -58,8 +66,8 @@ export default function TransactionsClient() {
   const [amount, setAmount] = useState("");
   const [type, setType] = useState<'Income' | 'Expense'>("Expense");
   const [categoryId, setCategoryId] = useState("");
-  const [date, setDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
-  const [time, setTime] = useState(() => format(new Date(), "HH:mm"));
+  const [date, setDate] = useState(() => getLocalDateString());
+  const [time, setTime] = useState(() => getLocal24TimeString());
   const [description, setDescription] = useState("");
 
   // Edit Transaction Modal State
@@ -98,7 +106,7 @@ export default function TransactionsClient() {
           type: 'Expense',
           amount: Number(existingProduct.default_price),
           description: existingProduct.name,
-          transaction_date: nowIso,
+          transaction_date: buildTransactionDateTime(getLocalDateString(), getLocal24TimeString()),
           category_name: catName,
           created_at: nowIso,
         };
@@ -176,7 +184,7 @@ export default function TransactionsClient() {
         type: 'Expense',
         amount: Number(productPrice),
         description: productName.trim(),
-        transaction_date: nowIso,
+        transaction_date: buildTransactionDateTime(getLocalDateString(), getLocal24TimeString()),
         category_name: catName,
         created_at: nowIso,
       };
@@ -245,9 +253,8 @@ export default function TransactionsClient() {
   };
 
   const handleOpenAddDialog = () => {
-    const now = new Date();
-    setDate(format(now, "yyyy-MM-dd"));
-    setTime(format(now, "HH:mm"));
+    setDate(getLocalDateString());
+    setTime(getLocal24TimeString());
     setAmount("");
     setDescription("");
     setCategoryId("");
@@ -262,21 +269,9 @@ export default function TransactionsClient() {
     setEditCategoryId(tx.category_id);
     setEditDescription(tx.description || "");
 
-    try {
-      const d = new Date(tx.transaction_date);
-      if (!isNaN(d.getTime())) {
-        setEditDate(format(d, "yyyy-MM-dd"));
-        setEditTime(format(d, "HH:mm"));
-      } else {
-        const now = new Date();
-        setEditDate(format(now, "yyyy-MM-dd"));
-        setEditTime(format(now, "HH:mm"));
-      }
-    } catch {
-      const now = new Date();
-      setEditDate(format(now, "yyyy-MM-dd"));
-      setEditTime(format(now, "HH:mm"));
-    }
+    const parsed = parseTransactionDate(tx);
+    setEditDate(parsed.date);
+    setEditTime(parsed.time || getLocal24TimeString());
 
     setIsEditOpen(true);
   };
@@ -290,8 +285,7 @@ export default function TransactionsClient() {
 
     const newId = uuidv4();
     const catName = categories.find(c => c.id === categoryId)?.name || 'Lainnya';
-    const dateTimeString = `${date}T${time}:00`;
-    const finalDateTime = new Date(dateTimeString).toISOString();
+    const finalDateTime = buildTransactionDateTime(date, time);
 
     const payload: Transaction = {
       id: newId,
@@ -338,8 +332,7 @@ export default function TransactionsClient() {
     }
 
     const catName = categories.find(c => c.id === editCategoryId)?.name || 'Lainnya';
-    const dateTimeString = `${editDate}T${editTime}:00`;
-    const finalDateTime = new Date(dateTimeString).toISOString();
+    const finalDateTime = buildTransactionDateTime(editDate, editTime);
 
     const updatedData = {
       category_id: editCategoryId,
@@ -411,41 +404,7 @@ export default function TransactionsClient() {
     }
   };
 
-  const getDateLabel = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return dateStr;
-      
-      const today = new Date();
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      
-      const isToday = format(d, "yyyy-MM-dd") === format(today, "yyyy-MM-dd");
-      const isYesterday = format(d, "yyyy-MM-dd") === format(yesterday, "yyyy-MM-dd");
-      
-      if (isToday) {
-        return `Hari Ini • ${format(d, "d MMMM yyyy", { locale: idLocale })}`;
-      }
-      if (isYesterday) {
-        return `Kemarin • ${format(d, "d MMMM yyyy", { locale: idLocale })}`;
-      }
-      return format(d, "EEEE, d MMMM yyyy", { locale: idLocale });
-    } catch {
-      return dateStr;
-    }
-  };
-
-  const formatTimeOnly = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return "";
-      return format(d, "HH:mm");
-    } catch {
-      return "";
-    }
-  };
-
-  // Group transactions by date
+  // Group transactions by date (memoized for optimal performance)
   interface GroupedTransactions {
     dateKey: string;
     displayDate: string;
@@ -454,33 +413,35 @@ export default function TransactionsClient() {
     items: Transaction[];
   }
 
-  const groupedTransactions: GroupedTransactions[] = [];
-  
-  transactions.forEach(tx => {
-    let dateKey = "Lainnya";
-    try {
-      const d = new Date(tx.transaction_date);
-      if (!isNaN(d.getTime())) {
-        dateKey = format(d, "yyyy-MM-dd");
+  const groupedTransactions = useMemo(() => {
+    const list: GroupedTransactions[] = [];
+
+    transactions.forEach(tx => {
+      let dateKey = "Lainnya";
+      try {
+        const { date } = parseTransactionDate(tx);
+        dateKey = date;
+      } catch {}
+
+      let group = list.find(g => g.dateKey === dateKey);
+      if (!group) {
+        group = {
+          dateKey,
+          displayDate: getDateGroupLabel(tx.transaction_date),
+          totalIncome: 0,
+          totalExpense: 0,
+          items: []
+        };
+        list.push(group);
       }
-    } catch {}
 
-    let group = groupedTransactions.find(g => g.dateKey === dateKey);
-    if (!group) {
-      group = {
-        dateKey,
-        displayDate: getDateLabel(tx.transaction_date),
-        totalIncome: 0,
-        totalExpense: 0,
-        items: []
-      };
-      groupedTransactions.push(group);
-    }
+      if (tx.type === 'Income') group.totalIncome += Number(tx.amount);
+      if (tx.type === 'Expense') group.totalExpense += Number(tx.amount);
+      group.items.push(tx);
+    });
 
-    if (tx.type === 'Income') group.totalIncome += Number(tx.amount);
-    if (tx.type === 'Expense') group.totalExpense += Number(tx.amount);
-    group.items.push(tx);
-  });
+    return list;
+  }, [transactions]);
 
   return (
     <div className="flex-1 space-y-6 p-4 sm:space-y-8 sm:p-8 sm:pt-6">
@@ -563,10 +524,11 @@ export default function TransactionsClient() {
                   <div className="space-y-2">
                     <Label className="flex items-center gap-1.5 text-xs sm:text-sm">
                       <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                      Jam (Waktu)
+                      Jam (24 Jam)
                     </Label>
                     <Input 
                       type="time" 
+                      step="60"
                       value={time} 
                       onChange={(e) => setTime(e.target.value)} 
                       required 
@@ -687,10 +649,11 @@ export default function TransactionsClient() {
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5 text-xs sm:text-sm">
                   <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                  Jam (Waktu)
+                  Jam (24 Jam)
                 </Label>
                 <Input 
                   type="time" 
+                  step="60"
                   value={editTime} 
                   onChange={(e) => setEditTime(e.target.value)} 
                   required 
@@ -879,11 +842,18 @@ export default function TransactionsClient() {
                           {tx.description || tx.category_name || 'Transaksi'}
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
-                          <span className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground/90">
-                            <Clock className="h-3 w-3" />
-                            {formatTimeOnly(tx.transaction_date) || "00:00"}
-                          </span>
-                          <span>•</span>
+                          {(() => {
+                            const t = format24HourTime(tx.transaction_date, tx.created_at);
+                            return t ? (
+                              <>
+                                <span className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground/90 font-medium">
+                                  <Clock className="h-3 w-3" />
+                                  {t}
+                                </span>
+                                <span>•</span>
+                              </>
+                            ) : null;
+                          })()}
                           <span className="font-medium text-foreground/80">
                             {categories.find(c => c.id === tx.category_id)?.name || 
                              (tx.type === 'Expense' && tx.category_name === 'Beasiswa' ? 'Makanan & Minuman' : tx.category_name) || 

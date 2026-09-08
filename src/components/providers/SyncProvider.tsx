@@ -5,6 +5,7 @@ import { db, seedDefaultCategories, seedDefaultProducts } from "@/lib/db";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { getLocalDateString, migrateInconsistentTransactionDates } from "@/lib/dateUtils";
 import { Cloud, CloudOff, RefreshCw } from "lucide-react";
 
 const DEFAULT_USER_ID = "e4b67445-6a97-4864-bbd7-1febdde17db0";
@@ -236,9 +237,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
             }
 
             if (payload.transaction_date) {
-              const d = new Date(payload.transaction_date);
-              if (!isNaN(d.getTime())) {
-                payload.transaction_date = format(d, 'yyyy-MM-dd');
+              const safeDate = payload.transaction_date.slice(0, 10);
+              if (/^\d{4}-\d{2}-\d{2}$/.test(safeDate)) {
+                payload.transaction_date = safeDate;
               }
             }
           }
@@ -335,11 +336,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           matchedCat = targetType === 'Expense' ? defaultExpenseCat : defaultIncomeCat;
         }
 
-        let dateFormatted = format(new Date(), 'yyyy-MM-dd');
-        if (tx.transaction_date) {
-          const d = new Date(tx.transaction_date);
-          if (!isNaN(d.getTime())) {
-            dateFormatted = format(d, 'yyyy-MM-dd');
+        let dateFormatted = getLocalDateString();
+        if (tx.transaction_date && tx.transaction_date.length >= 10) {
+          const safeDate = tx.transaction_date.slice(0, 10);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(safeDate)) {
+            dateFormatted = safeDate;
           }
         }
 
@@ -406,6 +407,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     seedDefaultCategories();
     seedDefaultProducts();
     repairMisassignedCategories();
+    migrateInconsistentTransactionDates();
     syncNow();
 
     // Auto sync interval every 12 seconds when online

@@ -27,8 +27,10 @@ import {
   Plus, 
   Receipt, 
   Trash2,
-  Scale
+  Scale,
+  Clock
 } from 'lucide-react';
+import { buildTransactionDateTime, format24HourTime, getLocal24TimeString } from '@/lib/dateUtils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -47,7 +49,7 @@ export default function CalendarClient() {
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<'Income' | 'Expense'>('Expense');
   const [categoryId, setCategoryId] = useState('');
-  const [time, setTime] = useState(() => format(new Date(), 'HH:mm'));
+  const [time, setTime] = useState(() => getLocal24TimeString());
   const [description, setDescription] = useState('');
 
   // Live queries from Dexie DB
@@ -56,12 +58,14 @@ export default function CalendarClient() {
 
   const filteredCategories = categories.filter(c => c.type === type);
 
-  // Month interval & calendar grid days (starts on Monday)
-  const monthStart = startOfMonth(currentMonth);
-  const monthEnd = endOfMonth(monthStart);
-  const startDate = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 });
-  const calendarDays = eachDayOfInterval({ start: startDate, end: endDate });
+  // Month interval & calendar grid days (starts on Monday) - optimized with useMemo
+  const calendarDays = useMemo(() => {
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd = endOfMonth(monthStart);
+    const startDate = startOfWeek(monthStart, { weekStartsOn: 1 });
+    const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 });
+    return eachDayOfInterval({ start: startDate, end: endDate });
+  }, [currentMonth]);
 
   // Map transactions by YYYY-MM-DD
   const dateDataMap = useMemo(() => {
@@ -120,7 +124,7 @@ export default function CalendarClient() {
   const handleOpenAddModal = () => {
     setAmount('');
     setDescription('');
-    setTime(format(new Date(), 'HH:mm'));
+    setTime(getLocal24TimeString());
     setCategoryId(filteredCategories[0]?.id || '');
     setIsAddOpen(true);
   };
@@ -133,7 +137,7 @@ export default function CalendarClient() {
     }
 
     const catName = categories.find(c => c.id === categoryId)?.name || 'Lainnya';
-    const txDateStr = `${selectedDateKey}T${time || '12:00'}:00.000Z`;
+    const txDateStr = buildTransactionDateTime(selectedDateKey, time);
     const newId = uuidv4();
 
     const newTx: Transaction = {
@@ -406,9 +410,7 @@ export default function CalendarClient() {
             <div className="divide-y max-h-[400px] overflow-y-auto">
               {selectedDayData.txs.map(tx => {
                 const isIncome = tx.type === 'Income';
-                const txTime = tx.transaction_date.length >= 16 
-                  ? tx.transaction_date.slice(11, 16) 
-                  : '';
+                const txTime = format24HourTime(tx.transaction_date, tx.created_at);
 
                 return (
                   <div key={tx.id} className="flex items-center justify-between p-3 sm:px-6 hover:bg-muted/20 transition-colors">
@@ -427,7 +429,10 @@ export default function CalendarClient() {
                           {txTime && (
                             <>
                               <span>•</span>
-                              <span>{txTime} WIB</span>
+                              <span className="inline-flex items-center gap-1 font-mono">
+                                <Clock className="h-3 w-3" />
+                                {txTime}
+                              </span>
                             </>
                           )}
                         </div>
@@ -527,9 +532,10 @@ export default function CalendarClient() {
             {/* Time & Description */}
             <div className="grid grid-cols-3 gap-2">
               <div className="space-y-2 col-span-1">
-                <Label>Jam</Label>
+                <Label>Jam (24 Jam)</Label>
                 <Input
                   type="time"
+                  step="60"
                   value={time}
                   onChange={(e) => setTime(e.target.value)}
                   required

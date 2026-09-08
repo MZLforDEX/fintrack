@@ -158,15 +158,16 @@ export default function BudgetsClient() {
           budgets.map(budget => {
             const displayCatName = categories.find(c => c.id === budget.category_id)?.name || budget.category_name || 'Kategori';
             
-            // Calculate spent
+            // Calculate spent (timezone-safe and fast)
             const spent = transactions
               .filter(tx => {
-                const txDate = new Date(tx.transaction_date);
+                const datePart = (tx.transaction_date || '').slice(0, 7);
+                const [y, m] = datePart.split('-').map(Number);
                 return tx.category_id === budget.category_id && 
-                       txDate.getMonth() + 1 === budget.month && 
-                       txDate.getFullYear() === budget.year;
+                       m === budget.month && 
+                       y === budget.year;
               })
-              .reduce((sum, tx) => sum + tx.amount, 0);
+              .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
             
             const percentage = Math.min((spent / budget.amount) * 100, 100);
             const isWarning = percentage >= 80;

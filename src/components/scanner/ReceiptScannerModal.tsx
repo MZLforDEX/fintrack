@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { Category } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
+import { buildTransactionDateTime, getLocal24TimeString } from "@/lib/dateUtils";
 import Tesseract from "tesseract.js";
 
 interface ReceiptScannerModalProps {
@@ -315,7 +316,7 @@ export function ReceiptScannerModal({
         amount: Number(extractedAmount),
         description: extractedMerchant || "Belanja Struk",
         category_id: extractedCategoryId,
-        transaction_date: `${extractedDate}T${format(new Date(), "HH:mm")}:00.000Z`,
+        transaction_date: buildTransactionDateTime(extractedDate, getLocal24TimeString()),
       });
 
       toast.success(

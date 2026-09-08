@@ -35,6 +35,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { formatCurrency } from '@/lib/utils';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
+import { 
+  buildTransactionDateTime, 
+  format24HourTime, 
+  getLocalDateString, 
+  getLocal24TimeString, 
+  parseTransactionDate 
+} from '@/lib/dateUtils';
+import { LiveClock } from '@/components/ui/live-clock';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Transaction, Product } from '@/lib/db';
 import { useSync } from '@/components/providers/SyncProvider';
@@ -88,8 +96,8 @@ export default function DashboardClient() {
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<'Income' | 'Expense'>('Expense');
   const [categoryId, setCategoryId] = useState('');
-  const [txDate, setTxDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
-  const [txTime, setTxTime] = useState(() => format(new Date(), 'HH:mm'));
+  const [txDate, setTxDate] = useState(() => getLocalDateString());
+  const [txTime, setTxTime] = useState(() => getLocal24TimeString());
   const [description, setDescription] = useState('');
 
   // Barcode Scanner & Product Memory State
@@ -115,8 +123,8 @@ export default function DashboardClient() {
   const handleOpenAddModal = () => {
     setAmount('');
     setDescription('');
-    setTxDate(format(new Date(), 'yyyy-MM-dd'));
-    setTxTime(format(new Date(), 'HH:mm'));
+    setTxDate(getLocalDateString());
+    setTxTime(getLocal24TimeString());
     const defaultCat = categories.filter(c => c.type === type)[0]?.id || '';
     setCategoryId(defaultCat);
     setIsAddOpen(true);
@@ -131,7 +139,7 @@ export default function DashboardClient() {
 
     const catName = categories.find(c => c.id === categoryId)?.name || 'Lainnya';
     const nowIso = new Date().toISOString();
-    const fullDateStr = `${txDate}T${txTime || '12:00'}:00.000Z`;
+    const fullDateStr = buildTransactionDateTime(txDate, txTime);
 
     const newTx: Transaction = {
       id: uuidv4(),
@@ -188,7 +196,7 @@ export default function DashboardClient() {
           type: 'Expense',
           amount: Number(existingProduct.default_price),
           description: existingProduct.name,
-          transaction_date: nowIso,
+          transaction_date: buildTransactionDateTime(getLocalDateString(), getLocal24TimeString()),
           category_name: catName,
           created_at: nowIso,
         };
@@ -264,7 +272,7 @@ export default function DashboardClient() {
         type: 'Expense',
         amount: Number(productPrice),
         description: newProduct.name,
-        transaction_date: nowIso,
+        transaction_date: buildTransactionDateTime(getLocalDateString(), getLocal24TimeString()),
         category_name: catName,
         created_at: nowIso,
       };
@@ -328,64 +336,83 @@ export default function DashboardClient() {
     });
   };
   
-  let totalBalance = 0;
-  let currentMonthIncome = 0;
-  let currentMonthExpense = 0;
-  
-  const date = new Date();
-  const firstDayOfMonth = new Date(date.getFullYear(), date.getMonth(), 1).toISOString();
+  const {
+    totalBalance,
+    currentMonthIncome,
+    currentMonthExpense,
+    monthlyData,
+    hasChartData,
+    recentTransactions,
+    firstDayOfMonthStr,
+  } = useMemo(() => {
+    let totalBalance = 0;
+    let currentMonthIncome = 0;
+    let currentMonthExpense = 0;
 
-  // 6 Months data for chart
-  const monthlyData: { month: string; rawMonth: string; income: number; expense: number }[] = [];
-  
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date();
-    d.setMonth(d.getMonth() - i);
-    const monthName = d.toLocaleString('id-ID', { month: 'short' });
-    const rawMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    monthlyData.push({
-      month: monthName,
-      rawMonth,
-      income: 0,
-      expense: 0,
-    });
-  }
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth();
+    const firstDayOfMonthStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
 
-  allTransactions.forEach(tx => {
-    // Total Balance
-    if (tx.type === 'Income') totalBalance += Number(tx.amount);
-    if (tx.type === 'Expense') totalBalance -= Number(tx.amount);
-
-    // Current Month
-    if (tx.transaction_date >= firstDayOfMonth) {
-      if (tx.type === 'Income') currentMonthIncome += Number(tx.amount);
-      if (tx.type === 'Expense') currentMonthExpense += Number(tx.amount);
+    // 6 Months data for chart (with day 1 to avoid end-of-month rollover bug)
+    const monthlyData: { month: string; rawMonth: string; income: number; expense: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(currentYear, currentMonth - i, 1);
+      const monthName = d.toLocaleString('id-ID', { month: 'short' });
+      const rawMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      monthlyData.push({
+        month: monthName,
+        rawMonth,
+        income: 0,
+        expense: 0,
+      });
     }
 
-    // Chart grouping
-    try {
-      const txDate = new Date(tx.transaction_date);
-      if (!isNaN(txDate.getTime())) {
-        const rawMonth = `${txDate.getFullYear()}-${String(txDate.getMonth() + 1).padStart(2, '0')}`;
+    allTransactions.forEach(tx => {
+      const amount = Number(tx.amount) || 0;
+      // Total Balance
+      if (tx.type === 'Income') totalBalance += amount;
+      if (tx.type === 'Expense') totalBalance -= amount;
+
+      const txDatePart = (tx.transaction_date || '').slice(0, 10);
+
+      // Current Month
+      if (txDatePart >= firstDayOfMonthStr) {
+        if (tx.type === 'Income') currentMonthIncome += amount;
+        if (tx.type === 'Expense') currentMonthExpense += amount;
+      }
+
+      // Chart grouping
+      if (txDatePart.length >= 7) {
+        const rawMonth = txDatePart.slice(0, 7);
         const target = monthlyData.find(m => m.rawMonth === rawMonth);
         if (target) {
-          if (tx.type === 'Income') target.income += Number(tx.amount);
-          if (tx.type === 'Expense') target.expense += Number(tx.amount);
+          if (tx.type === 'Income') target.income += amount;
+          if (tx.type === 'Expense') target.expense += amount;
         }
       }
-    } catch {}
-  });
+    });
 
-  const hasChartData = monthlyData.some(m => m.income > 0 || m.expense > 0);
+    const hasChartData = monthlyData.some(m => m.income > 0 || m.expense > 0);
+
+    const recentTransactions = [...allTransactions]
+      .sort((a, b) => (b.transaction_date || '').localeCompare(a.transaction_date || ''))
+      .slice(0, 5);
+
+    return {
+      totalBalance,
+      currentMonthIncome,
+      currentMonthExpense,
+      monthlyData,
+      hasChartData,
+      recentTransactions,
+      firstDayOfMonthStr,
+    };
+  }, [allTransactions]);
 
   // Goals
   const totalGoals = goals.length;
   const completedGoals = goals.filter(g => g.status === 'Completed').length;
-
-  // Recent 5 transactions
-  const recentTransactions = [...allTransactions]
-    .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime())
-    .slice(0, 5);
 
   // Mask currency helper for Privacy Mode
   const maskAmount = (val: number) => {
@@ -396,7 +423,7 @@ export default function DashboardClient() {
   // Smart Financial Insights Computations
   const smartInsights = useMemo(() => {
     const currentMonthExpenses = allTransactions.filter(
-      tx => tx.type === 'Expense' && tx.transaction_date >= firstDayOfMonth
+      tx => tx.type === 'Expense' && (tx.transaction_date || '').slice(0, 10) >= firstDayOfMonthStr
     );
 
     // 1. Group by category to find top expense
@@ -456,7 +483,7 @@ export default function DashboardClient() {
       topCategoryPercent,
       dailyAverage,
     };
-  }, [allTransactions, currentMonthIncome, currentMonthExpense, firstDayOfMonth, categories]);
+  }, [allTransactions, currentMonthIncome, currentMonthExpense, firstDayOfMonthStr, categories]);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -480,10 +507,18 @@ export default function DashboardClient() {
 
   return (
     <div className="flex-1 space-y-6 p-4 sm:space-y-8 sm:p-8 sm:pt-6">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h2>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+            Ringkasan kondisi finansial dan aktivitas transaksi terkini.
+          </p>
+        </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Real-time 24-Hour Clock */}
+          <LiveClock />
+
           {/* Privacy Toggle Button */}
           <Button
             variant="outline"
@@ -753,12 +788,8 @@ export default function DashboardClient() {
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {(() => {
-                          try {
-                            const d = new Date(tx.transaction_date);
-                            return isNaN(d.getTime()) ? tx.transaction_date : format(d, "d MMM yyyy, HH:mm", { locale: id });
-                          } catch {
-                            return tx.transaction_date || "-";
-                          }
+                          const { displayDateTime } = parseTransactionDate(tx);
+                          return displayDateTime;
                         })()}
                       </p>
                     </div>
@@ -864,9 +895,10 @@ export default function DashboardClient() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Jam</Label>
+                <Label>Jam (24 Jam)</Label>
                 <Input
                   type="time"
+                  step="60"
                   value={txTime}
                   onChange={(e) => setTxTime(e.target.value)}
                   required
