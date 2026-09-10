@@ -23,7 +23,12 @@ import {
   TrendingDown,
   AlertTriangle,
   CheckCircle,
-  Lightbulb
+  Lightbulb,
+  ShieldCheck,
+  ShieldAlert,
+  Calendar,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -111,6 +116,9 @@ export default function DashboardClient() {
 
   // Receipt Scanner State
   const [isReceiptScannerOpen, setIsReceiptScannerOpen] = useState(false);
+
+  // 6-Month Budget Analysis Expandable State
+  const [showSixMonthDetails, setShowSixMonthDetails] = useState(true);
 
   // Fetch from local Dexie DB
   const allTransactions = useLiveQuery(() => db.transactions.toArray()) || [];
@@ -474,6 +482,45 @@ export default function DashboardClient() {
     const dayOfMonth = Math.max(1, new Date().getDate());
     const dailyAverage = Math.round(currentMonthExpense / dayOfMonth);
 
+    // 4. Batas Wajar Penggunaan Bulanan (Alokasi 6 Bulan Berdasarkan Sisa Saldo)
+    const sixMonths = 6;
+    const safeMonthlyLimit = totalBalance > 0 ? Math.floor(totalBalance / sixMonths) : 0;
+    const recommendedSafeLimit = totalBalance > 0 ? Math.floor((totalBalance * 0.85) / sixMonths) : 0;
+    const isOverLimit = totalBalance > 0 && currentMonthExpense > safeMonthlyLimit;
+    const limitUsagePercent = safeMonthlyLimit > 0 
+      ? Math.round((currentMonthExpense / safeMonthlyLimit) * 100) 
+      : (currentMonthExpense > 0 ? 100 : 0);
+    const remainingMonthlyQuota = Math.max(0, safeMonthlyLimit - currentMonthExpense);
+
+    // Proyeksi Tiap Bulan untuk 6 Bulan ke Depan
+    const today = new Date();
+    const currYear = today.getFullYear();
+    const currMonth = today.getMonth();
+
+    const sixMonthProjections = [];
+    let accumulatedStandardExpense = 0;
+
+    for (let i = 0; i < sixMonths; i++) {
+      const d = new Date(currYear, currMonth + i, 1);
+      const monthShort = d.toLocaleString('id-ID', { month: 'short' });
+      const monthFull = d.toLocaleString('id-ID', { month: 'long', year: 'numeric' });
+      const isCurrent = i === 0;
+
+      accumulatedStandardExpense += safeMonthlyLimit;
+      const projectedBalance = Math.max(0, totalBalance - accumulatedStandardExpense);
+
+      sixMonthProjections.push({
+        index: i + 1,
+        monthShort,
+        monthFull,
+        isCurrent,
+        monthlyLimit: safeMonthlyLimit,
+        spent: isCurrent ? currentMonthExpense : 0,
+        remainingQuota: isCurrent ? Math.max(0, safeMonthlyLimit - currentMonthExpense) : safeMonthlyLimit,
+        projectedBalance,
+      });
+    }
+
     return {
       savingsRate,
       healthScore,
@@ -482,8 +529,14 @@ export default function DashboardClient() {
       topCategory,
       topCategoryPercent,
       dailyAverage,
+      safeMonthlyLimit,
+      recommendedSafeLimit,
+      isOverLimit,
+      limitUsagePercent,
+      remainingMonthlyQuota,
+      sixMonthProjections,
     };
-  }, [allTransactions, currentMonthIncome, currentMonthExpense, firstDayOfMonthStr, categories]);
+  }, [allTransactions, currentMonthIncome, currentMonthExpense, firstDayOfMonthStr, categories, totalBalance]);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -658,7 +711,7 @@ export default function DashboardClient() {
         </CardHeader>
 
         <CardContent className="pt-0">
-          <div className="grid gap-3 sm:grid-cols-3 pt-2 border-t text-xs sm:text-sm">
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 pt-2 border-t text-xs sm:text-sm">
             {/* Savings Rate */}
             <div className="p-3 rounded-xl bg-muted/30 border space-y-1">
               <div className="flex items-center justify-between text-muted-foreground">
@@ -700,6 +753,182 @@ export default function DashboardClient() {
                 Kecepatan belanja harian bulan ini
               </p>
             </div>
+
+            {/* Safe Monthly Limit (6-Month Horizon) */}
+            <div className="p-3 rounded-xl bg-muted/30 border space-y-1">
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span className="text-xs">Batas Wajar (6 Bln)</span>
+                {totalBalance <= 0 || smartInsights.isOverLimit ? (
+                  <ShieldAlert className="h-3.5 w-3.5 text-rose-500" />
+                ) : (
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                )}
+              </div>
+              <div className="text-base sm:text-lg font-bold text-foreground">
+                {maskAmount(smartInsights.safeMonthlyLimit)} <span className="text-xs font-normal text-muted-foreground">/bln</span>
+              </div>
+              <p className="text-[11px] truncate">
+                {totalBalance <= 0 ? (
+                  <span className="text-rose-500 font-medium">Saldo kritis / habis</span>
+                ) : smartInsights.isOverLimit ? (
+                  <span className="text-rose-500 font-medium">Lewat kuota (+{maskAmount(currentMonthExpense - smartInsights.safeMonthlyLimit)})</span>
+                ) : (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">{smartInsights.limitUsagePercent}% terpakai bln ini</span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* 6-Month Fair Monthly Limit Analysis & Simulation Panel */}
+          <div className="mt-3 p-3 sm:p-3.5 rounded-xl border bg-muted/20 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-start sm:items-center gap-2">
+                <div className="p-1 rounded-md bg-primary/10 text-primary mt-0.5 sm:mt-0">
+                  <Calendar className="h-4 w-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs sm:text-sm font-semibold text-foreground">
+                    Alokasi & Proyeksi Batas Wajar 6 Bulan
+                  </h4>
+                  <p className="text-[11px] text-muted-foreground">
+                    Berdasarkan sisa saldo {maskAmount(totalBalance)}, batas pengeluaran wajar adalah {maskAmount(smartInsights.safeMonthlyLimit)} / bulan agar saldo bertahan 6 bulan.
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowSixMonthDetails(!showSixMonthDetails)}
+                className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground self-end sm:self-auto gap-1 border border-border/50"
+              >
+                <span>{showSixMonthDetails ? 'Tutup Rincian' : 'Rincian Tiap Bulan'}</span>
+                {showSixMonthDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
+
+            {/* Current Month Gauge / Progress Bar */}
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-foreground flex items-center gap-1.5">
+                  <span>Realisasi Bulan Berjalan ({smartInsights.sixMonthProjections[0]?.monthShort || 'Bulan Ini'})</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${
+                    totalBalance <= 0 || smartInsights.isOverLimit 
+                      ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' 
+                      : smartInsights.limitUsagePercent >= 80 
+                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' 
+                      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                  }`}>
+                    {totalBalance <= 0 
+                      ? 'Saldo Defisit' 
+                      : smartInsights.isOverLimit 
+                      ? 'Melebihi Batas' 
+                      : smartInsights.limitUsagePercent >= 80 
+                      ? 'Mendekati Batas' 
+                      : 'Aman & Terkendali'}
+                  </span>
+                </span>
+                <span className="text-muted-foreground text-[11px] font-medium">
+                  {maskAmount(currentMonthExpense)} / {maskAmount(smartInsights.safeMonthlyLimit)} ({smartInsights.limitUsagePercent}%)
+                </span>
+              </div>
+
+              {/* Progress Bar Track */}
+              <div className="h-2 w-full rounded-full bg-muted/60 overflow-hidden">
+                <div 
+                  className={`h-full transition-all duration-500 ${
+                    totalBalance <= 0 || smartInsights.isOverLimit 
+                      ? 'bg-rose-500' 
+                      : smartInsights.limitUsagePercent >= 80 
+                      ? 'bg-amber-500' 
+                      : 'bg-emerald-500'
+                  }`}
+                  style={{ width: `${Math.min(100, smartInsights.limitUsagePercent)}%` }}
+                />
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-muted-foreground gap-1">
+                <span>
+                  {totalBalance <= 0 ? (
+                    'Tidak ada saldo tersedia untuk belanja'
+                  ) : smartInsights.isOverLimit ? (
+                    <span className="text-rose-500 font-medium">Melampaui batas aman sebesar {maskAmount(currentMonthExpense - smartInsights.safeMonthlyLimit)}</span>
+                  ) : (
+                    <span>Sisa kuota belanja wajar bulan ini: <strong className="text-foreground">{maskAmount(smartInsights.remainingMonthlyQuota)}</strong></span>
+                  )}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  Cadangan darurat disarankan (15%): {maskAmount(smartInsights.recommendedSafeLimit)}/bln
+                </span>
+              </div>
+            </div>
+
+            {/* 6-Month Cards Projection */}
+            {showSixMonthDetails && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-2 border-t">
+                {smartInsights.sixMonthProjections.map((item) => (
+                  <div 
+                    key={item.index} 
+                    className={`p-2.5 rounded-lg border text-xs flex flex-col justify-between transition-colors ${
+                      item.isCurrent 
+                        ? 'bg-primary/5 border-primary/30 ring-1 ring-primary/20' 
+                        : 'bg-card/70 hover:bg-muted/40'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="font-semibold text-foreground text-xs">{item.monthShort}</span>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+                          item.isCurrent 
+                            ? 'bg-primary text-primary-foreground' 
+                            : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {item.isCurrent ? 'Bulan ke-1' : `Bulan ke-${item.index}`}
+                        </span>
+                      </div>
+
+                      <div className="text-[10px] text-muted-foreground">Batas Wajar:</div>
+                      <div className="font-bold text-xs text-foreground">
+                        {maskAmount(item.monthlyLimit)}
+                      </div>
+                    </div>
+
+                    <div className="mt-2 pt-1.5 border-t text-[10px] space-y-0.5">
+                      {item.isCurrent ? (
+                        <>
+                          <div className="flex items-center justify-between text-muted-foreground">
+                            <span>Realisasi:</span>
+                            <span className={`font-semibold ${item.spent > item.monthlyLimit ? 'text-rose-500' : 'text-foreground'}`}>
+                              {maskAmount(item.spent)}
+                            </span>
+                          </div>
+                          <div className="text-[9px] text-muted-foreground truncate">
+                            {item.spent > item.monthlyLimit ? (
+                              <span className="text-rose-500">Over budget</span>
+                            ) : (
+                              <span>Sisa: {maskAmount(item.remainingQuota)}</span>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between text-muted-foreground">
+                            <span>Est. Saldo:</span>
+                            <span className="font-semibold text-foreground">
+                              {maskAmount(item.projectedBalance)}
+                            </span>
+                          </div>
+                          <div className="text-[9px] text-muted-foreground">
+                            akhir bulan
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Actionable Advice Tip */}
@@ -707,10 +936,16 @@ export default function DashboardClient() {
             <Lightbulb className="h-4 w-4 text-primary shrink-0 mt-0.5" />
             <div>
               <span className="font-semibold text-primary">Saran Cerdas: </span>
-              {smartInsights.savingsRate >= 30
-                ? "Pola keuangan Anda sangat sehat! Pertimbangkan untuk mengalokasikan sebagian surplus dana ke Financial Goals atau Tabungan Darurat."
+              {totalBalance <= 0
+                ? "Sisa saldo Anda saat ini kosong atau defisit. Prioritaskan penerimaan pemasukan dan tunda pengeluaran non-esensial."
+                : smartInsights.isOverLimit
+                ? `Pengeluaran bulan ini (${maskAmount(currentMonthExpense)}) telah melampaui batas wajar 6 bulan (${maskAmount(smartInsights.safeMonthlyLimit)}/bulan). Disarankan berhemat di sisa bulan agar saldo cukup bertahan selama 6 bulan.`
+                : smartInsights.limitUsagePercent >= 80
+                ? `Pengeluaran bulan ini sudah mencapai ${smartInsights.limitUsagePercent}% dari batas wajar bulanan. Jaga pengeluaran agar tetap dalam kuota aman ${maskAmount(smartInsights.safeMonthlyLimit)}.`
+                : smartInsights.savingsRate >= 30
+                ? "Pola keuangan Anda sangat sehat dan belanja berada dalam batas wajar 6 bulan! Pertimbangkan untuk mengalokasikan sebagian surplus dana ke Financial Goals atau Tabungan Darurat."
                 : smartInsights.topCategory
-                ? `Pengeluaran kategori "${smartInsights.topCategory.name}" mendominasi ${smartInsights.topCategoryPercent}% dari belanja Anda. Mengurangi sedikit pos ini dapat meningkatkan tabungan bulanan.`
+                ? `Pengeluaran kategori "${smartInsights.topCategory.name}" mendominasi ${smartInsights.topCategoryPercent}% dari belanja Anda. Mengurangi sedikit pos ini akan menjaga ketahanan saldo 6 bulan Anda tetap optimal.`
                 : "Mulai catat transaksi secara rutin untuk mendapatkan wawasan dan pola keuangan otomatis yang lebih akurat."}
             </div>
           </div>
