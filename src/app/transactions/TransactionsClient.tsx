@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, Transaction, Product, seedDefaultProducts } from "@/lib/db";
-import { createClient } from "@/lib/supabase/client";
 import { format } from "date-fns";
 import { id as idLocale } from "date-fns/locale";
 import { formatCurrency } from "@/lib/utils";
@@ -371,33 +370,8 @@ export default function TransactionsClient() {
 
   const handleDelete = async (id: string, desc?: string) => {
     try {
-      // 1. Delete locally from Dexie DB
+      // Delete locally from Dexie DB
       await db.transactions.delete(id);
-
-      // 2. Remove any pending INSERT / UPDATE for this ID from syncQueue
-      const pendingItems = await db.syncQueue.toArray();
-      for (const item of pendingItems) {
-        if (item.table === 'transactions' && item.payload?.id === id) {
-          await db.syncQueue.delete(item.id!);
-        }
-      }
-
-      // 3. Queue DELETE operation
-      await db.syncQueue.add({
-        operation: 'DELETE',
-        table: 'transactions',
-        payload: { id },
-        created_at: new Date().toISOString()
-      });
-
-      // 4. Try direct delete to Supabase if connected
-      try {
-        const supabase = createClient();
-        await supabase.from('transactions').delete().eq('id', id);
-      } catch {
-        // Queue will retry if offline
-      }
-
       toast.success(`Transaksi ${desc ? `"${desc}"` : ''} berhasil dihapus.`);
     } catch (err) {
       toast.error("Gagal menghapus transaksi.");

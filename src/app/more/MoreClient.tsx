@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Product, seedDefaultProducts } from '@/lib/db';
-import { createClient } from '@/lib/supabase/client';
 import { 
   Barcode, 
   Plus, 
@@ -17,8 +16,7 @@ import {
   Tags,
   ChevronRight,
   PackagePlus,
-  Cloud,
-  RefreshCw
+  ShieldCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -29,10 +27,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { formatCurrency } from '@/lib/utils';
-import { useSync } from '@/components/providers/SyncProvider';
 
 export default function MoreClient() {
-  const { isOnline, isSyncing, syncNow, forcePushLocalToCloud } = useSync();
   const products = useLiveQuery(() => db.products.toArray()) || [];
   const categories = useLiveQuery(() => db.categories.where('type').equals('Expense').toArray()) || [];
 
@@ -233,51 +229,34 @@ export default function MoreClient() {
         </Link>
       </div>
 
-      {/* Cloud Sync & Overwrite Management Card */}
-      <Card className="border shadow-sm bg-gradient-to-br from-card via-card to-primary/5">
+      {/* 100% Offline & Private Info Card */}
+      <Card className="border shadow-sm bg-gradient-to-br from-card via-card to-emerald-500/5">
         <CardHeader className="pb-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Cloud className="h-5 w-5" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
+                <ShieldCheck className="h-5 w-5" />
               </div>
               <div>
-                <CardTitle className="text-base sm:text-lg">Sinkronisasi Cloud Supabase</CardTitle>
+                <CardTitle className="text-base sm:text-lg">Mode 100% Offline & Privat</CardTitle>
                 <CardDescription className="text-xs">
-                  Data perangkat ini adalah <strong>Master Utama</strong>. Anda bisa menimpa database cloud kapan saja.
+                  Seluruh data tersimpan secara eksklusif dan terisolasi di memori internal perangkat Anda.
                 </CardDescription>
               </div>
             </div>
 
             <div className="flex items-center gap-2 self-start sm:self-auto">
-              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${isOnline ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' : 'bg-orange-500/10 text-orange-600 border border-orange-500/20'}`}>
-                <span className={`h-2 w-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-orange-500'}`} />
-                <span>{isOnline ? 'Online (Terhubung)' : 'Offline'}</span>
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span>v1.2 Standalone (Tanpa Internet)</span>
               </div>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-          <Button
-            type="button"
-            onClick={forcePushLocalToCloud}
-            disabled={!isOnline || isSyncing}
-            className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs sm:text-sm font-semibold shadow-sm flex-1"
-          >
-            <Cloud className="h-4 w-4" />
-            <span>Timpa Data Cloud dengan Data Perangkat Ini</span>
-          </Button>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={syncNow}
-            disabled={!isOnline || isSyncing}
-            className="gap-2 text-xs sm:text-sm font-medium shrink-0"
-          >
-            <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Menyinkronkan...' : 'Sinkronkan Sekarang'}</span>
-          </Button>
+        <CardContent className="pt-1">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            FinTrack beroperasi sepenuhnya secara luring (*offline*) tanpa akun eksternal dan tanpa server cloud. Seluruh riwayat transaksi, anggaran bulanan, target tabungan, dan katalog barcode Anda tidak pernah meninggalkan ponsel ini demi perlindungan privasi finansial maksimal.
+          </p>
         </CardContent>
       </Card>
 

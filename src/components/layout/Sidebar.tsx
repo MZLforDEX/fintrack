@@ -57,6 +57,12 @@ export function Sidebar() {
           })}
         </nav>
       </div>
+      <div className="border-t p-4 px-6 text-xs text-muted-foreground flex items-center justify-between">
+        <span className="font-medium text-foreground/80">FinTrack</span>
+        <span className="font-mono bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded text-[11px] font-semibold border border-emerald-500/20">
+          v1.2 Offline
+        </span>
+      </div>
     </div>
   );
 }

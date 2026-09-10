@@ -4,6 +4,7 @@ import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { MobileNav } from "@/components/layout/MobileNav";
 import { SyncProvider } from "@/components/providers/SyncProvider";
+import { CapacitorProvider } from "@/components/providers/CapacitorProvider";
 import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
@@ -58,27 +59,28 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground antialiased selection:bg-primary/20">
-        <div className="flex min-h-screen pb-20 sm:pb-0">
-          {/* Desktop Sidebar */}
-          <div className="hidden sm:flex">
-            <Sidebar />
-          </div>
-          
-          <main className="flex-1 flex flex-col min-w-0 max-w-full">
-            {/* Main Content (Clean App layout without web headers on mobile) */}
-            <div className="flex-1 w-full">
-              <SyncProvider>
-                {children}
-              </SyncProvider>
+        <CapacitorProvider>
+          <div className="flex min-h-screen pb-20 sm:pb-0">
+            {/* Desktop Sidebar */}
+            <div className="hidden sm:flex">
+              <Sidebar />
             </div>
-          </main>
+            
+            <main className="flex-1 flex flex-col min-w-0 max-w-full">
+              {/* Main Content (Clean App layout without web headers on mobile) */}
+              <div className="flex-1 w-full">
+                <SyncProvider>
+                  {children}
+                </SyncProvider>
+              </div>
+            </main>
 
-          {/* Mobile Bottom Navigation */}
-          <MobileNav />
-        </div>
-        <Toaster />
+            {/* Mobile Bottom Navigation */}
+            <MobileNav />
+          </div>
+          <Toaster />
+        </CapacitorProvider>
       </body>
     </html>
   );
 }
-
