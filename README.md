@@ -4,7 +4,7 @@
 
 **Aplikasi Manajemen Keuangan Pribadi yang Modern, Cepat, dan 100% Offline-First untuk Web & Android.**
 
-[![Version](https://img.shields.io/badge/version-1.2.0-emerald.svg?style=flat-square)](https://github.com/MZLforDEX/fintrack/releases)
+[![Version](https://img.shields.io/badge/version-1.3.0-emerald.svg?style=flat-square)](https://github.com/MZLforDEX/fintrack/releases)
 [![Next.js](https://img.shields.io/badge/Next.js-16.3-black.svg?style=flat-square&logo=next.js)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg?style=flat-square&logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="#-fitur-utama">Fitur Utama</a> •
-  <a href="#-unduh-aplikasi-android-v12">Unduh APK</a> •
+  <a href="#-unduh-aplikasi-android-v13">Unduh APK</a> •
   <a href="#-teknologi-yang-digunakan">Tech Stack</a> •
   <a href="#-struktur-proyek">Struktur Proyek</a> •
   <a href="#-menjalankan-secara-lokal">Cara Menjalankan</a> •
@@ -41,31 +41,38 @@ Aplikasi ini tersedia baik sebagai aplikasi web responsif modern maupun sebagai 
 - Seluruh riwayat transaksi keuangan Anda tersimpan eksklusif di dalam database lokal **IndexedDB (Dexie.js)** pada perangkat Anda.
 - Versi Android dikompilasi **tanpa izin akses internet (`INTERNET` permission disabled)**, menjamin secara teknis di level sistem operasi bahwa tidak ada data transaksi yang dapat bocor atau dikirim keluar dari smartphone Anda.
 
-### 🔍 2. Pemindai Barcode Barang (Smart Barcode Scanner)
+### ☀️ 2. Batas Wajar Penggunaan Harian & Bulanan (Smart Safe Limits)
+- **Batas Wajar Harian Otomatis**: Menghitung jatah pengeluaran harian yang aman berdasarkan alokasi saldo kas 6 bulan dibagi jumlah hari.
+- **Jatah Adaptif Sisa Bulan**: Menyesuaikan rekomendasi kuota belanja harian ke depan berdasarkan sisa kuota bulanan yang masih tersedia.
+- **Peringatan Real-Time**: Memberikan peringatan instan saat memasukkan transaksi jika nominal belanja melebihi sisa batas wajar harian.
+- **Fleksibilitas Kustomisasi**: Pengguna dapat memilih mode rekomendasi otomatis atau menetapkan batas nominal harian sendiri.
+
+### 🔍 3. Pemindai Barcode Barang (Smart Barcode Scanner)
 - Pindai barcode kemasan produk belanjaan secara instan menggunakan kamera smartphone via `html5-qrcode`.
 - Terintegrasi dengan **katalog bawaan 100+ produk retail harian populer** di Indonesia (Indomie, Aqua, Le Minerale, minyak goreng, produk kebutuhan pokok, hingga perlengkapan mandi).
 - Memungkinkan penambahan dan kustomisasi daftar barcode produk baru sesuai kebiasaan belanja Anda.
 
-### 🧾 3. Pemindai Struk Belanja (OCR Smart Receipt Reader)
+### 🧾 4. Pemindai Struk Belanja (OCR Smart Receipt Reader)
 - Ekstraksi teks struk belanja otomatis menggunakan teknologi Optical Character Recognition (OCR).
 - Algoritma cerdas yang mampu mendeteksi nama merchant/minimarket (*Indomaret, Alfamart, SPBU, apotek, kafe*), nominal total belanja, tanggal transaksi, dan menyarankan kategori pengeluaran yang sesuai.
 
-### 📊 4. Analitik & Grafik Keuangan Interaktif
+### 📊 5. Analitik & Grafik Keuangan Interaktif
 - Visualisasi arus kas masuk (*Income*) dan keluar (*Expense*) yang interaktif dan responsif menggunakan **Recharts**.
 - Analisis pengeluaran per kategori (*Pie Chart & Bar Chart*) serta perbandingan tren arus kas bulanan untuk evaluasi finansial yang akurat.
 
-### 💰 5. Anggaran Bulanan (Budgeting Management)
+### 💰 6. Anggaran Bulanan (Budgeting Management)
 - Tentukan limit pengeluaran per kategori untuk setiap bulan.
+- Dilengkapi ringkasan batas wajar harian dan bulanan terpadu untuk acuan belanja global.
 - Indikator bar visual dinamis yang memberi peringatan saat pengeluaran mendekati atau melampaui limit anggaran.
 
-### 🎯 6. Target Tabungan & Impian (Financial Goals)
+### 🎯 7. Target Tabungan & Impian (Financial Goals)
 - Atur target finansial jangka pendek maupun jangka panjang (dana darurat, liburan, gadget, kendaraan).
 - Pantau persentase progres tabungan dan sisa waktu menuju tenggat waktu target (*deadline*).
 
-### 📅 7. Kalender Finansial
+### 📅 8. Kalender Finansial
 - Tampilan kalender bulanan interaktif yang menampilkan riwayat keluar-masuk uang pada tanggal spesifik secara sekilas.
 
-### 📱 8. Pengalaman Mobile Native Android yang Mulus
+### 📱 9. Pengalaman Mobile Native Android yang Mulus
 - Bilah navigasi bawah (*Mobile Bottom Navigation*) yang ramah satu tangan.
 - Dukungan tombol kembali fisik Android (*Hardware Back Button*) yang cerdas (menutup dialog modal, kembali ke dashboard, atau konfirmasi keluar aplikasi).
 - Desain *Safe Area Insets* yang menyesuaikan punch-hole kamera dan bilah gestur navigasi modern.
@@ -73,21 +80,21 @@ Aplikasi ini tersedia baik sebagai aplikasi web responsif modern maupun sebagai 
 
 ---
 
-## 📦 Unduh Aplikasi Android (v1.2)
+## 📦 Unduh Aplikasi Android (v1.3)
 
 File APK versi terbaru yang siap diinstall langsung di smartphone Android Anda:
 
 | Parameter | Spesifikasi |
 | :--- | :--- |
-| **Berkas APK** | [**`FinTrack-v1.2.apk`**](./FinTrack-v1.2.apk) *(Klik untuk mengunduh langsung dari repo)* |
-| **Versi Rilis** | `v1.2.0 (Build 2)` |
-| **Ukuran File** | **~4.93 MB** (Sangat ringan dan cepat diunduh) |
+| **Berkas APK** | [**`FinTrack-v1.3.apk`**](./FinTrack-v1.3.apk) *(Klik untuk mengunduh langsung dari repo)* |
+| **Versi Rilis** | `v1.3.0 (Build 3)` |
+| **Ukuran File** | **~5.1 MB** (Sangat ringan dan cepat diunduh) |
 | **Application ID** | `com.mzlfordex.fintrack` |
 | **Target OS** | Android 7.0 (Nougat, API Level 24) hingga Android 16 (API Level 36) |
 | **Koneksi Internet** | **Tidak Dibutuhkan (100% Offline)** |
 
 ### Cara Pasang di Smartphone:
-1. Unduh file [**`FinTrack-v1.2.apk`**](./FinTrack-v1.2.apk) ke ponsel Anda.
+1. Unduh file [**`FinTrack-v1.3.apk`**](./FinTrack-v1.3.apk) ke ponsel Anda.
 2. Buka file manager di HP dan ketuk file APK tersebut.
 3. Pilih **Install** (jika muncul notifikasi keamanan, aktifkan *Allow from this source* atau *Izinkan dari sumber ini*).
 4. Buka aplikasi **FinTrack** dan mulai kelola keuangan pribadi Anda secara bebas dan privat!

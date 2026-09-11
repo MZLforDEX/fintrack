@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, Budget } from "@/lib/db";
-import { Plus, Wallet, Trash2 } from "lucide-react";
+import { Plus, Wallet, Trash2, Sun, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,12 +13,69 @@ import { v4 as uuidv4 } from "uuid";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { formatCurrency } from "@/lib/utils";
+import { getLocalDateString } from "@/lib/dateUtils";
 
 export default function BudgetsClient() {
   const budgets = useLiveQuery(() => db.budgets.toArray()) || [];
   const categories = useLiveQuery(() => db.categories.where('type').equals('Expense').toArray()) || [];
   // Calculate expenses to show budget progress
-  const transactions = useLiveQuery(() => db.transactions.where('type').equals('Expense').toArray()) || [];
+  const allTransactions = useLiveQuery(() => db.transactions.toArray()) || [];
+  const transactions = allTransactions.filter(tx => tx.type === 'Expense');
+
+  // Fair limits (Batas Wajar Harian & Bulanan)
+  const fairLimits = useMemo(() => {
+    let balance = 0;
+    let monthExpense = 0;
+    let todayExpense = 0;
+    const todayStr = getLocalDateString();
+    const now = new Date();
+    const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const totalDaysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+
+    allTransactions.forEach(tx => {
+      const amt = Number(tx.amount) || 0;
+      if (tx.type === 'Income') balance += amt;
+      if (tx.type === 'Expense') {
+        balance -= amt;
+        const txDate = (tx.transaction_date || '').slice(0, 10);
+        if (txDate.startsWith(currentMonthPrefix)) {
+          monthExpense += amt;
+        }
+        if (txDate === todayStr) {
+          todayExpense += amt;
+        }
+      }
+    });
+
+    const safeMonthly = balance > 0 ? Math.floor(balance / 6) : 0;
+    const autoDaily = safeMonthly > 0 ? Math.floor(safeMonthly / totalDaysInMonth) : 0;
+
+    let customDaily = 0;
+    try {
+      const saved = localStorage.getItem('fintrack_custom_daily_limit');
+      if (saved) {
+        const val = Number(saved);
+        if (!isNaN(val) && val > 0) customDaily = val;
+      }
+    } catch {}
+
+    const safeDaily = customDaily > 0 ? customDaily : autoDaily;
+    const isTodayOver = safeDaily > 0 && todayExpense > safeDaily;
+    const remainingToday = Math.max(0, safeDaily - todayExpense);
+    const isMonthOver = safeMonthly > 0 && monthExpense > safeMonthly;
+    const remainingMonth = Math.max(0, safeMonthly - monthExpense);
+
+    return {
+      safeDaily,
+      todayExpense,
+      isTodayOver,
+      remainingToday,
+      safeMonthly,
+      monthExpense,
+      isMonthOver,
+      remainingMonth,
+    };
+  }, [allTransactions]);
 
   const [isOpen, setIsOpen] = useState(false);
   const [amount, setAmount] = useState("");
@@ -147,6 +204,81 @@ export default function BudgetsClient() {
             </form>
           </DialogContent>
         </Dialog>
+      </div>
+
+      {/* Fair Usage Limit Summary Cards (Harian & Bulanan) */}
+      <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2">
+        {/* Batas Wajar Harian Card */}
+        <Card className="border shadow-sm bg-muted/20">
+          <CardHeader className="p-4 pb-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                <Sun className="h-4 w-4 text-amber-500" />
+                Batas Wajar Harian
+              </span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                fairLimits.isTodayOver
+                  ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+              }`}>
+                {fairLimits.isTodayOver ? 'Lewat Kuota' : 'Terkendali'}
+              </span>
+            </div>
+            <CardTitle className="text-xl mt-1">
+              {formatCurrency(fairLimits.safeDaily)} <span className="text-xs font-normal text-muted-foreground">/hari</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 text-xs text-muted-foreground space-y-1">
+            <div className="flex justify-between">
+              <span>Realisasi Hari Ini:</span>
+              <span className={`font-semibold ${fairLimits.isTodayOver ? 'text-rose-500' : 'text-foreground'}`}>
+                {formatCurrency(fairLimits.todayExpense)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>Sisa Kuota Hari Ini:</span>
+              <span className="font-semibold text-foreground">
+                {formatCurrency(fairLimits.remainingToday)}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Batas Wajar Bulanan Card */}
+        <Card className="border shadow-sm bg-muted/20">
+          <CardHeader className="p-4 pb-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                <Calendar className="h-4 w-4 text-primary" />
+                Batas Wajar Bulanan (6 Bulan)
+              </span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                fairLimits.isMonthOver
+                  ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+              }`}>
+                {fairLimits.isMonthOver ? 'Lewat Kuota' : 'Terkendali'}
+              </span>
+            </div>
+            <CardTitle className="text-xl mt-1">
+              {formatCurrency(fairLimits.safeMonthly)} <span className="text-xs font-normal text-muted-foreground">/bln</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 text-xs text-muted-foreground space-y-1">
+            <div className="flex justify-between">
+              <span>Realisasi Bulan Ini:</span>
+              <span className={`font-semibold ${fairLimits.isMonthOver ? 'text-rose-500' : 'text-foreground'}`}>
+                {formatCurrency(fairLimits.monthExpense)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>Sisa Kuota Bulan Ini:</span>
+              <span className="font-semibold text-foreground">
+                {formatCurrency(fairLimits.remainingMonth)}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

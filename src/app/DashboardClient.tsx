@@ -28,7 +28,10 @@ import {
   ShieldAlert,
   Calendar,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Sun,
+  SlidersHorizontal,
+  Coins
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -120,6 +123,60 @@ export default function DashboardClient() {
   // 6-Month Budget Analysis Expandable State
   const [showSixMonthDetails, setShowSixMonthDetails] = useState(true);
 
+  // Batas Wajar Harian State & Settings
+  const [activeLimitTab, setActiveLimitTab] = useState<'daily' | 'monthly'>('daily');
+  const [showDailyDetails, setShowDailyDetails] = useState(true);
+  const [customDailyLimit, setCustomDailyLimit] = useState<number>(0);
+  const [isCustomLimitDialogOpen, setIsCustomLimitDialogOpen] = useState(false);
+  const [tempCustomDailyLimit, setTempCustomDailyLimit] = useState('');
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('fintrack_custom_daily_limit');
+      if (saved) {
+        const val = Number(saved);
+        if (!isNaN(val) && val > 0) {
+          setCustomDailyLimit(val);
+        }
+      }
+    } catch {}
+  }, []);
+
+  const handleOpenCustomLimitDialog = () => {
+    setTempCustomDailyLimit(
+      customDailyLimit > 0
+        ? String(customDailyLimit)
+        : smartInsights.autoDailyLimit > 0
+        ? String(smartInsights.autoDailyLimit)
+        : ''
+    );
+    setIsCustomLimitDialogOpen(true);
+  };
+
+  const handleSaveCustomDailyLimit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = Number(tempCustomDailyLimit);
+    if (isNaN(val) || val <= 0) {
+      toast.error('Nominal batas wajar harian harus lebih besar dari 0.');
+      return;
+    }
+    setCustomDailyLimit(val);
+    try {
+      localStorage.setItem('fintrack_custom_daily_limit', String(val));
+    } catch {}
+    toast.success(`Batas wajar harian berhasil diatur ke ${formatCurrency(val)}/hari`);
+    setIsCustomLimitDialogOpen(false);
+  };
+
+  const handleResetToAutoDailyLimit = () => {
+    setCustomDailyLimit(0);
+    try {
+      localStorage.removeItem('fintrack_custom_daily_limit');
+    } catch {}
+    toast.success('Batas wajar harian dikembalikan ke mode otomatis (berdasarkan alokasi saldo 6 bulan)');
+    setIsCustomLimitDialogOpen(false);
+  };
+
   // Fetch from local Dexie DB
   const allTransactions = useLiveQuery(() => db.transactions.toArray()) || [];
   const goals = useLiveQuery(() => db.goals.toArray()) || [];
@@ -176,7 +233,19 @@ export default function DashboardClient() {
         created_at: nowIso,
       });
 
-      toast.success(`Transaksi ${type === 'Income' ? 'Pemasukan' : 'Pengeluaran'} berhasil dicatat!`);
+      if (
+        type === 'Expense' &&
+        txDate === smartInsights.todayStr &&
+        smartInsights.safeDailyLimit > 0 &&
+        (smartInsights.todayExpense + Number(amount)) > smartInsights.safeDailyLimit
+      ) {
+        toast.warning(
+          `Pengeluaran dicatat. Peringatan: Total belanja hari ini melampaui batas wajar harian (${maskAmount(smartInsights.safeDailyLimit)})!`,
+          { duration: 5000 }
+        );
+      } else {
+        toast.success(`Transaksi ${type === 'Income' ? 'Pemasukan' : 'Pengeluaran'} berhasil dicatat!`);
+      }
       setIsAddOpen(false);
     } catch (err) {
       toast.error('Gagal menambahkan transaksi.');
@@ -521,6 +590,35 @@ export default function DashboardClient() {
       });
     }
 
+    // 5. Batas Wajar Penggunaan Harian
+    const todayStr = getLocalDateString();
+    const totalDaysInMonth = new Date(currYear, currMonth + 1, 0).getDate();
+    const remainingDaysInMonth = Math.max(1, totalDaysInMonth - dayOfMonth + 1);
+
+    const autoDailyLimit = safeMonthlyLimit > 0 ? Math.floor(safeMonthlyLimit / totalDaysInMonth) : 0;
+    const safeDailyLimit = customDailyLimit > 0 ? customDailyLimit : autoDailyLimit;
+
+    // Transaksi pengeluaran hari ini
+    const todayExpensesList = allTransactions.filter(
+      tx => tx.type === 'Expense' && (tx.transaction_date || '').slice(0, 10) === todayStr
+    );
+    const todayExpense = todayExpensesList.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+    const dailyLimitUsagePercent = safeDailyLimit > 0
+      ? Math.round((todayExpense / safeDailyLimit) * 100)
+      : (todayExpense > 0 ? 100 : 0);
+    const isTodayOverLimit = safeDailyLimit > 0 && todayExpense > safeDailyLimit;
+    const remainingDailyQuota = Math.max(0, safeDailyLimit - todayExpense);
+    const overDailyAmount = Math.max(0, todayExpense - safeDailyLimit);
+
+    // Jatah harian adaptif sisa bulan
+    const adaptiveDailyLimit = remainingMonthlyQuota > 0
+      ? Math.floor(remainingMonthlyQuota / remainingDaysInMonth)
+      : 0;
+
+    const recentTodayExpenses = [...todayExpensesList].sort((a, b) =>
+      (b.transaction_date || '').localeCompare(a.transaction_date || '')
+    );
+
     return {
       savingsRate,
       healthScore,
@@ -535,8 +633,24 @@ export default function DashboardClient() {
       limitUsagePercent,
       remainingMonthlyQuota,
       sixMonthProjections,
+      // 5. Batas Wajar Penggunaan Harian
+      todayStr,
+      totalDaysInMonth,
+      dayOfMonth,
+      remainingDaysInMonth,
+      autoDailyLimit,
+      safeDailyLimit,
+      isCustomDaily: customDailyLimit > 0,
+      todayExpensesList,
+      todayExpense,
+      dailyLimitUsagePercent,
+      isTodayOverLimit,
+      remainingDailyQuota,
+      overDailyAmount,
+      adaptiveDailyLimit,
+      recentTodayExpenses,
     };
-  }, [allTransactions, currentMonthIncome, currentMonthExpense, firstDayOfMonthStr, categories, totalBalance]);
+  }, [allTransactions, currentMonthIncome, currentMonthExpense, firstDayOfMonthStr, categories, totalBalance, customDailyLimit]);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -711,7 +825,7 @@ export default function DashboardClient() {
         </CardHeader>
 
         <CardContent className="pt-0">
-          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 pt-2 border-t text-xs sm:text-sm">
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 pt-2 border-t text-xs sm:text-sm">
             {/* Savings Rate */}
             <div className="p-3 rounded-xl bg-muted/30 border space-y-1">
               <div className="flex items-center justify-between text-muted-foreground">
@@ -735,22 +849,36 @@ export default function DashboardClient() {
               <div className="text-base sm:text-lg font-bold text-foreground truncate">
                 {smartInsights.topCategory ? smartInsights.topCategory.name : "Belum Ada"}
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground truncate">
                 {smartInsights.topCategory ? `${smartInsights.topCategoryPercent}% (${maskAmount(smartInsights.topCategory.amount)})` : "Tidak ada pengeluaran"}
               </p>
             </div>
 
-            {/* Daily Burn Rate */}
-            <div className="p-3 rounded-xl bg-muted/30 border space-y-1">
+            {/* Safe Daily Limit (Batas Wajar Harian) */}
+            <div className="p-3 rounded-xl bg-muted/30 border space-y-1 col-span-2 sm:col-span-1">
               <div className="flex items-center justify-between text-muted-foreground">
-                <span className="text-xs">Rata-Rata Harian</span>
-                <Activity className="h-3.5 w-3.5 text-primary" />
+                <span className="text-xs font-medium">Batas Wajar Harian</span>
+                {totalBalance <= 0 || smartInsights.isTodayOverLimit ? (
+                  <ShieldAlert className="h-3.5 w-3.5 text-rose-500" />
+                ) : (
+                  <Sun className="h-3.5 w-3.5 text-amber-500" />
+                )}
               </div>
               <div className="text-base sm:text-lg font-bold text-foreground">
-                {maskAmount(smartInsights.dailyAverage)} <span className="text-xs font-normal text-muted-foreground">/hari</span>
+                {maskAmount(smartInsights.safeDailyLimit)} <span className="text-xs font-normal text-muted-foreground">/hari</span>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                Kecepatan belanja harian bulan ini
+              <p className="text-[11px] truncate">
+                {totalBalance <= 0 ? (
+                  <span className="text-rose-500 font-medium">Saldo kritis / habis</span>
+                ) : smartInsights.isTodayOverLimit ? (
+                  <span className="text-rose-500 font-medium">Lewat (+{maskAmount(smartInsights.overDailyAmount)})</span>
+                ) : smartInsights.todayExpense === 0 ? (
+                  <span className="text-muted-foreground">Hari ini belum belanja</span>
+                ) : (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                    {smartInsights.dailyLimitUsagePercent}% terpakai ({maskAmount(smartInsights.todayExpense)})
+                  </span>
+                )}
               </p>
             </div>
 
@@ -777,156 +905,427 @@ export default function DashboardClient() {
                 )}
               </p>
             </div>
+
+            {/* Daily Burn Rate */}
+            <div className="p-3 rounded-xl bg-muted/30 border space-y-1">
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span className="text-xs">Rata-Rata Harian</span>
+                <Activity className="h-3.5 w-3.5 text-primary" />
+              </div>
+              <div className="text-base sm:text-lg font-bold text-foreground">
+                {maskAmount(smartInsights.dailyAverage)} <span className="text-xs font-normal text-muted-foreground">/hari</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Kecepatan belanja harian bulan ini
+              </p>
+            </div>
           </div>
 
-          {/* 6-Month Fair Monthly Limit Analysis & Simulation Panel */}
+          {/* Batas Wajar Penggunaan (Harian & Bulanan) Panel */}
           <div className="mt-3 p-3 sm:p-3.5 rounded-xl border bg-muted/20 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-start sm:items-center gap-2">
-                <div className="p-1 rounded-md bg-primary/10 text-primary mt-0.5 sm:mt-0">
-                  <Calendar className="h-4 w-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs sm:text-sm font-semibold text-foreground">
-                    Alokasi & Proyeksi Batas Wajar 6 Bulan
-                  </h4>
-                  <p className="text-[11px] text-muted-foreground">
-                    Berdasarkan sisa saldo {maskAmount(totalBalance)}, batas pengeluaran wajar adalah {maskAmount(smartInsights.safeMonthlyLimit)} / bulan agar saldo bertahan 6 bulan.
-                  </p>
-                </div>
-              </div>
-
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowSixMonthDetails(!showSixMonthDetails)}
-                className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground self-end sm:self-auto gap-1 border border-border/50"
-              >
-                <span>{showSixMonthDetails ? 'Tutup Rincian' : 'Rincian Tiap Bulan'}</span>
-                {showSixMonthDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-              </Button>
-            </div>
-
-            {/* Current Month Gauge / Progress Bar */}
-            <div className="space-y-1.5 pt-1">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-medium text-foreground flex items-center gap-1.5">
-                  <span>Realisasi Bulan Berjalan ({smartInsights.sixMonthProjections[0]?.monthShort || 'Bulan Ini'})</span>
-                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${
-                    totalBalance <= 0 || smartInsights.isOverLimit 
-                      ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' 
-                      : smartInsights.limitUsagePercent >= 80 
-                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' 
-                      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
-                  }`}>
-                    {totalBalance <= 0 
-                      ? 'Saldo Defisit' 
-                      : smartInsights.isOverLimit 
-                      ? 'Melebihi Batas' 
-                      : smartInsights.limitUsagePercent >= 80 
-                      ? 'Mendekati Batas' 
-                      : 'Aman & Terkendali'}
-                  </span>
-                </span>
-                <span className="text-muted-foreground text-[11px] font-medium">
-                  {maskAmount(currentMonthExpense)} / {maskAmount(smartInsights.safeMonthlyLimit)} ({smartInsights.limitUsagePercent}%)
-                </span>
-              </div>
-
-              {/* Progress Bar Track */}
-              <div className="h-2 w-full rounded-full bg-muted/60 overflow-hidden">
-                <div 
-                  className={`h-full transition-all duration-500 ${
-                    totalBalance <= 0 || smartInsights.isOverLimit 
-                      ? 'bg-rose-500' 
-                      : smartInsights.limitUsagePercent >= 80 
-                      ? 'bg-amber-500' 
-                      : 'bg-emerald-500'
+            {/* Tab Switcher: Harian vs Bulanan */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2.5">
+              <div className="flex items-center gap-1.5 p-1 bg-muted/70 rounded-lg border border-border/50 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setActiveLimitTab('daily')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                    activeLimitTab === 'daily'
+                      ? 'bg-background text-foreground shadow-sm ring-1 ring-border/50'
+                      : 'text-muted-foreground hover:text-foreground'
                   }`}
-                  style={{ width: `${Math.min(100, smartInsights.limitUsagePercent)}%` }}
-                />
+                >
+                  <Sun className="h-3.5 w-3.5 text-amber-500" />
+                  <span>Batas Wajar Harian</span>
+                  {smartInsights.isTodayOverLimit && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveLimitTab('monthly')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                    activeLimitTab === 'monthly'
+                      ? 'bg-background text-foreground shadow-sm ring-1 ring-border/50'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Calendar className="h-3.5 w-3.5 text-primary" />
+                  <span>Batas Wajar 6 Bulan</span>
+                  {smartInsights.isOverLimit && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
+                  )}
+                </button>
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-muted-foreground gap-1">
-                <span>
-                  {totalBalance <= 0 ? (
-                    'Tidak ada saldo tersedia untuk belanja'
-                  ) : smartInsights.isOverLimit ? (
-                    <span className="text-rose-500 font-medium">Melampaui batas aman sebesar {maskAmount(currentMonthExpense - smartInsights.safeMonthlyLimit)}</span>
-                  ) : (
-                    <span>Sisa kuota belanja wajar bulan ini: <strong className="text-foreground">{maskAmount(smartInsights.remainingMonthlyQuota)}</strong></span>
-                  )}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  Cadangan darurat disarankan (15%): {maskAmount(smartInsights.recommendedSafeLimit)}/bln
-                </span>
+              {/* Action Buttons for active tab */}
+              <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                {activeLimitTab === 'daily' ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleOpenCustomLimitDialog}
+                      className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground gap-1 border-border/60"
+                      title="Atur Batas Harian Kustom"
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5 text-amber-500" />
+                      <span>Atur Batas</span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowDailyDetails(!showDailyDetails)}
+                      className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground gap-1 border border-border/50"
+                    >
+                      <span>{showDailyDetails ? 'Tutup Rincian' : 'Rincian Hari Ini'}</span>
+                      {showDailyDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowSixMonthDetails(!showSixMonthDetails)}
+                    className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground gap-1 border border-border/50"
+                  >
+                    <span>{showSixMonthDetails ? 'Tutup Rincian' : 'Rincian Tiap Bulan'}</span>
+                    {showSixMonthDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </Button>
+                )}
               </div>
             </div>
 
-            {/* 6-Month Cards Projection */}
-            {showSixMonthDetails && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-2 border-t">
-                {smartInsights.sixMonthProjections.map((item) => (
-                  <div 
-                    key={item.index} 
-                    className={`p-2.5 rounded-lg border text-xs flex flex-col justify-between transition-colors ${
-                      item.isCurrent 
-                        ? 'bg-primary/5 border-primary/30 ring-1 ring-primary/20' 
-                        : 'bg-card/70 hover:bg-muted/40'
-                    }`}
-                  >
+            {/* Content for TAB HARIAN */}
+            {activeLimitTab === 'daily' && (
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                  <div className="flex items-start sm:items-center gap-2">
+                    <div className="p-1.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 mt-0.5 sm:mt-0">
+                      <Sun className="h-4 w-4" />
+                    </div>
                     <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="font-semibold text-foreground text-xs">{item.monthShort}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
-                          item.isCurrent 
-                            ? 'bg-primary text-primary-foreground' 
-                            : 'bg-muted text-muted-foreground'
-                        }`}>
-                          {item.isCurrent ? 'Bulan ke-1' : `Bulan ke-${item.index}`}
+                      <h4 className="text-xs sm:text-sm font-semibold text-foreground flex items-center gap-2 flex-wrap">
+                        <span>Kontrol & Batas Wajar Penggunaan Harian</span>
+                        {smartInsights.isCustomDaily ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20">
+                            Mode Kustom
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border">
+                            Otomatis (Saldo 6 Bln)
+                          </span>
+                        )}
+                      </h4>
+                      <p className="text-[11px] text-muted-foreground">
+                        Batas pengeluaran wajar Anda hari ini adalah <strong className="text-foreground">{maskAmount(smartInsights.safeDailyLimit)}</strong> / hari agar cash flow tetap sehat dan seimbang.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Current Day Gauge / Progress Bar */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-foreground flex items-center gap-1.5 flex-wrap">
+                      <span>Realisasi Hari Ini ({format(new Date(), 'd MMMM yyyy', { locale: id })})</span>
+                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${
+                        totalBalance <= 0 || smartInsights.isTodayOverLimit
+                          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+                          : smartInsights.dailyLimitUsagePercent >= 80
+                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                      }`}>
+                        {totalBalance <= 0
+                          ? 'Saldo Defisit'
+                          : smartInsights.isTodayOverLimit
+                          ? 'Melebihi Batas Harian'
+                          : smartInsights.dailyLimitUsagePercent >= 80
+                          ? 'Mendekati Batas'
+                          : smartInsights.todayExpense === 0
+                          ? 'Belum Ada Belanja'
+                          : 'Aman & Terkendali'}
+                      </span>
+                    </span>
+                    <span className="text-muted-foreground text-[11px] font-medium">
+                      {maskAmount(smartInsights.todayExpense)} / {maskAmount(smartInsights.safeDailyLimit)} ({smartInsights.dailyLimitUsagePercent}%)
+                    </span>
+                  </div>
+
+                  {/* Progress Bar Track */}
+                  <div className="h-2 w-full rounded-full bg-muted/60 overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-500 ${
+                        totalBalance <= 0 || smartInsights.isTodayOverLimit
+                          ? 'bg-rose-500'
+                          : smartInsights.dailyLimitUsagePercent >= 80
+                          ? 'bg-amber-500'
+                          : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min(100, smartInsights.dailyLimitUsagePercent)}%` }}
+                    />
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-muted-foreground gap-1">
+                    <span>
+                      {totalBalance <= 0 ? (
+                        'Tidak ada saldo tersedia untuk belanja hari ini'
+                      ) : smartInsights.isTodayOverLimit ? (
+                        <span className="text-rose-500 font-medium">
+                          Melampaui batas wajar harian sebesar {maskAmount(smartInsights.overDailyAmount)}
+                        </span>
+                      ) : (
+                        <span>
+                          Sisa kuota belanja wajar hari ini: <strong className="text-foreground">{maskAmount(smartInsights.remainingDailyQuota)}</strong>
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      Jatah adaptif sisa bulan ({smartInsights.remainingDaysInMonth} hari): <strong className="text-foreground">{maskAmount(smartInsights.adaptiveDailyLimit)}</strong>/hari
+                    </span>
+                  </div>
+                </div>
+
+                {/* Detailed Breakdown for Daily */}
+                {showDailyDetails && (
+                  <div className="space-y-2.5 pt-2 border-t">
+                    {/* 3 Metric Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div className="p-2.5 rounded-lg border bg-card/70 text-xs space-y-1">
+                        <div className="text-muted-foreground flex items-center justify-between">
+                          <span>Batas Harian Standar</span>
+                          <Sun className="h-3.5 w-3.5 text-amber-500" />
+                        </div>
+                        <div className="text-sm font-bold text-foreground">
+                          {maskAmount(smartInsights.safeDailyLimit)} <span className="text-[10px] font-normal text-muted-foreground">/hari</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          {smartInsights.isCustomDaily
+                            ? 'Batas kustom yang Anda tetapkan'
+                            : `Batas bulanan (${maskAmount(smartInsights.safeMonthlyLimit)}) ÷ ${smartInsights.totalDaysInMonth} hari`}
+                        </p>
+                      </div>
+
+                      <div className="p-2.5 rounded-lg border bg-card/70 text-xs space-y-1">
+                        <div className="text-muted-foreground flex items-center justify-between">
+                          <span>Jatah Adaptif Sisa Bulan</span>
+                          <Sparkles className="h-3.5 w-3.5 text-primary" />
+                        </div>
+                        <div className="text-sm font-bold text-primary">
+                          {maskAmount(smartInsights.adaptiveDailyLimit)} <span className="text-[10px] font-normal text-muted-foreground">/hari</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          Sisa kuota ({maskAmount(smartInsights.remainingMonthlyQuota)}) ÷ {smartInsights.remainingDaysInMonth} hari tersisa
+                        </p>
+                      </div>
+
+                      <div className="p-2.5 rounded-lg border bg-card/70 text-xs space-y-1">
+                        <div className="text-muted-foreground flex items-center justify-between">
+                          <span>Rata-Rata Riil (Burn Rate)</span>
+                          <Activity className="h-3.5 w-3.5 text-primary" />
+                        </div>
+                        <div className="text-sm font-bold text-foreground">
+                          {maskAmount(smartInsights.dailyAverage)} <span className="text-[10px] font-normal text-muted-foreground">/hari</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          {smartInsights.dailyAverage > smartInsights.safeDailyLimit ? (
+                            <span className="text-rose-500 font-medium">Di atas batas wajar harian</span>
+                          ) : (
+                            <span className="text-emerald-600 dark:text-emerald-400 font-medium">Dalam jangkauan batas wajar</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Today's Transactions List */}
+                    <div className="p-2.5 rounded-lg border bg-background/60 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+                        <span className="flex items-center gap-1.5">
+                          <Coins className="h-3.5 w-3.5 text-primary" />
+                          <span>Rincian Pengeluaran Hari Ini</span>
+                        </span>
+                        <span className="text-[11px] text-muted-foreground font-normal">
+                          {smartInsights.todayExpensesList.length} transaksi
                         </span>
                       </div>
 
-                      <div className="text-[10px] text-muted-foreground">Batas Wajar:</div>
-                      <div className="font-bold text-xs text-foreground">
-                        {maskAmount(item.monthlyLimit)}
-                      </div>
-                    </div>
-
-                    <div className="mt-2 pt-1.5 border-t text-[10px] space-y-0.5">
-                      {item.isCurrent ? (
-                        <>
-                          <div className="flex items-center justify-between text-muted-foreground">
-                            <span>Realisasi:</span>
-                            <span className={`font-semibold ${item.spent > item.monthlyLimit ? 'text-rose-500' : 'text-foreground'}`}>
-                              {maskAmount(item.spent)}
-                            </span>
-                          </div>
-                          <div className="text-[9px] text-muted-foreground truncate">
-                            {item.spent > item.monthlyLimit ? (
-                              <span className="text-rose-500">Over budget</span>
-                            ) : (
-                              <span>Sisa: {maskAmount(item.remainingQuota)}</span>
-                            )}
-                          </div>
-                        </>
+                      {smartInsights.recentTodayExpenses.length === 0 ? (
+                        <p className="text-[11px] text-muted-foreground py-2 text-center">
+                          Belum ada transaksi pengeluaran hari ini. Kuota aman Anda masih utuh {maskAmount(smartInsights.safeDailyLimit)}.
+                        </p>
                       ) : (
-                        <>
-                          <div className="flex items-center justify-between text-muted-foreground">
-                            <span>Est. Saldo:</span>
-                            <span className="font-semibold text-foreground">
-                              {maskAmount(item.projectedBalance)}
-                            </span>
-                          </div>
-                          <div className="text-[9px] text-muted-foreground">
-                            akhir bulan
-                          </div>
-                        </>
+                        <div className="divide-y divide-border/40 text-xs">
+                          {smartInsights.recentTodayExpenses.map(tx => (
+                            <div key={tx.id} className="py-1.5 flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-muted font-medium text-foreground shrink-0">
+                                  {tx.category_name || categories.find(c => c.id === tx.category_id)?.name || 'Pengeluaran'}
+                                </span>
+                                <span className="truncate text-muted-foreground text-[11px]">
+                                  {tx.description || 'Tanpa keterangan'}
+                                </span>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <span className="font-semibold text-rose-500 text-xs">
+                                  -{maskAmount(Number(tx.amount))}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground block">
+                                  {format24HourTime(tx.transaction_date)}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>
-                ))}
+                )}
+              </div>
+            )}
+
+            {/* Content for TAB BULANAN (6 BULAN) */}
+            {activeLimitTab === 'monthly' && (
+              <div className="space-y-3">
+                <div className="flex items-start sm:items-center gap-2">
+                  <div className="p-1 rounded-md bg-primary/10 text-primary mt-0.5 sm:mt-0">
+                    <Calendar className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-semibold text-foreground">
+                      Alokasi & Proyeksi Batas Wajar 6 Bulan
+                    </h4>
+                    <p className="text-[11px] text-muted-foreground">
+                      Berdasarkan sisa saldo {maskAmount(totalBalance)}, batas pengeluaran wajar adalah {maskAmount(smartInsights.safeMonthlyLimit)} / bulan agar saldo bertahan 6 bulan.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Current Month Gauge / Progress Bar */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-foreground flex items-center gap-1.5">
+                      <span>Realisasi Bulan Berjalan ({smartInsights.sixMonthProjections[0]?.monthShort || 'Bulan Ini'})</span>
+                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${
+                        totalBalance <= 0 || smartInsights.isOverLimit 
+                          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' 
+                          : smartInsights.limitUsagePercent >= 80 
+                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' 
+                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                      }`}>
+                        {totalBalance <= 0 
+                          ? 'Saldo Defisit' 
+                          : smartInsights.isOverLimit 
+                          ? 'Melebihi Batas' 
+                          : smartInsights.limitUsagePercent >= 80 
+                          ? 'Mendekati Batas' 
+                          : 'Aman & Terkendali'}
+                      </span>
+                    </span>
+                    <span className="text-muted-foreground text-[11px] font-medium">
+                      {maskAmount(currentMonthExpense)} / {maskAmount(smartInsights.safeMonthlyLimit)} ({smartInsights.limitUsagePercent}%)
+                    </span>
+                  </div>
+
+                  {/* Progress Bar Track */}
+                  <div className="h-2 w-full rounded-full bg-muted/60 overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-500 ${
+                        totalBalance <= 0 || smartInsights.isOverLimit 
+                          ? 'bg-rose-500' 
+                          : smartInsights.limitUsagePercent >= 80 
+                          ? 'bg-amber-500' 
+                          : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min(100, smartInsights.limitUsagePercent)}%` }}
+                    />
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-muted-foreground gap-1">
+                    <span>
+                      {totalBalance <= 0 ? (
+                        'Tidak ada saldo tersedia untuk belanja'
+                      ) : smartInsights.isOverLimit ? (
+                        <span className="text-rose-500 font-medium">Melampaui batas aman sebesar {maskAmount(currentMonthExpense - smartInsights.safeMonthlyLimit)}</span>
+                      ) : (
+                        <span>Sisa kuota belanja wajar bulan ini: <strong className="text-foreground">{maskAmount(smartInsights.remainingMonthlyQuota)}</strong></span>
+                      )}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      Cadangan darurat disarankan (15%): {maskAmount(smartInsights.recommendedSafeLimit)}/bln
+                    </span>
+                  </div>
+                </div>
+
+                {/* 6-Month Cards Projection */}
+                {showSixMonthDetails && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-2 border-t">
+                    {smartInsights.sixMonthProjections.map((item) => (
+                      <div 
+                        key={item.index} 
+                        className={`p-2.5 rounded-lg border text-xs flex flex-col justify-between transition-colors ${
+                          item.isCurrent 
+                            ? 'bg-primary/5 border-primary/30 ring-1 ring-primary/20' 
+                            : 'bg-card/70 hover:bg-muted/40'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="font-semibold text-foreground text-xs">{item.monthShort}</span>
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+                              item.isCurrent 
+                                ? 'bg-primary text-primary-foreground' 
+                                : 'bg-muted text-muted-foreground'
+                            }`}>
+                              {item.isCurrent ? 'Bulan ke-1' : `Bulan ke-${item.index}`}
+                            </span>
+                          </div>
+
+                          <div className="text-[10px] text-muted-foreground">Batas Wajar:</div>
+                          <div className="font-bold text-xs text-foreground">
+                            {maskAmount(item.monthlyLimit)}
+                          </div>
+                        </div>
+
+                        <div className="mt-2 pt-1.5 border-t text-[10px] space-y-0.5">
+                          {item.isCurrent ? (
+                            <>
+                              <div className="flex items-center justify-between text-muted-foreground">
+                                <span>Realisasi:</span>
+                                <span className={`font-semibold ${item.spent > item.monthlyLimit ? 'text-rose-500' : 'text-foreground'}`}>
+                                  {maskAmount(item.spent)}
+                                </span>
+                              </div>
+                              <div className="text-[9px] text-muted-foreground truncate">
+                                {item.spent > item.monthlyLimit ? (
+                                  <span className="text-rose-500">Over budget</span>
+                                ) : (
+                                  <span>Sisa: {maskAmount(item.remainingQuota)}</span>
+                                )}
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex items-center justify-between text-muted-foreground">
+                                <span>Est. Saldo:</span>
+                                <span className="font-semibold text-foreground">
+                                  {maskAmount(item.projectedBalance)}
+                                </span>
+                              </div>
+                              <div className="text-[9px] text-muted-foreground">
+                                akhir bulan
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -940,10 +1339,14 @@ export default function DashboardClient() {
                 ? "Sisa saldo Anda saat ini kosong atau defisit. Prioritaskan penerimaan pemasukan dan tunda pengeluaran non-esensial."
                 : smartInsights.isOverLimit
                 ? `Pengeluaran bulan ini (${maskAmount(currentMonthExpense)}) telah melampaui batas wajar 6 bulan (${maskAmount(smartInsights.safeMonthlyLimit)}/bulan). Disarankan berhemat di sisa bulan agar saldo cukup bertahan selama 6 bulan.`
+                : smartInsights.isTodayOverLimit
+                ? `Pengeluaran hari ini (${maskAmount(smartInsights.todayExpense)}) telah melampaui batas wajar harian (${maskAmount(smartInsights.safeDailyLimit)}/hari). Tekan pengeluaran esok hari agar jatah adaptif Anda tetap optimal.`
+                : smartInsights.dailyLimitUsagePercent >= 80
+                ? `Pengeluaran hari ini sudah mencapai ${smartInsights.dailyLimitUsagePercent}% dari batas wajar harian. Pertahankan kendali agar tidak melebihi kuota ${maskAmount(smartInsights.safeDailyLimit)}.`
                 : smartInsights.limitUsagePercent >= 80
                 ? `Pengeluaran bulan ini sudah mencapai ${smartInsights.limitUsagePercent}% dari batas wajar bulanan. Jaga pengeluaran agar tetap dalam kuota aman ${maskAmount(smartInsights.safeMonthlyLimit)}.`
                 : smartInsights.savingsRate >= 30
-                ? "Pola keuangan Anda sangat sehat dan belanja berada dalam batas wajar 6 bulan! Pertimbangkan untuk mengalokasikan sebagian surplus dana ke Financial Goals atau Tabungan Darurat."
+                ? "Pola keuangan Anda sangat sehat dan belanja berada dalam batas wajar harian maupun bulanan! Pertimbangkan untuk mengalokasikan sebagian surplus dana ke Financial Goals atau Tabungan Darurat."
                 : smartInsights.topCategory
                 ? `Pengeluaran kategori "${smartInsights.topCategory.name}" mendominasi ${smartInsights.topCategoryPercent}% dari belanja Anda. Mengurangi sedikit pos ini akan menjaga ketahanan saldo 6 bulan Anda tetap optimal.`
                 : "Mulai catat transaksi secara rutin untuk mendapatkan wawasan dan pola keuangan otomatis yang lebih akurat."}
@@ -1101,6 +1504,35 @@ export default function DashboardClient() {
                 required
                 autoFocus
               />
+              {type === 'Expense' && txDate === smartInsights.todayStr && smartInsights.safeDailyLimit > 0 && (
+                <div className={`p-2.5 rounded-lg text-xs border space-y-1 transition-all ${
+                  Number(amount) > smartInsights.remainingDailyQuota && smartInsights.remainingDailyQuota > 0
+                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400'
+                    : Number(amount) > smartInsights.safeDailyLimit
+                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-400'
+                    : 'bg-muted/40 border-border/50 text-muted-foreground'
+                }`}>
+                  <div className="flex items-center justify-between font-medium">
+                    <span className="flex items-center gap-1">
+                      <Sun className="h-3.5 w-3.5 text-amber-500" />
+                      Batas Wajar Hari Ini:
+                    </span>
+                    <span className="text-foreground font-semibold">{maskAmount(smartInsights.safeDailyLimit)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span>Sisa Kuota Hari Ini:</span>
+                    <span className={`font-semibold ${smartInsights.remainingDailyQuota <= 0 ? 'text-rose-500' : 'text-foreground'}`}>
+                      {maskAmount(smartInsights.remainingDailyQuota)}
+                    </span>
+                  </div>
+                  {Number(amount) > 0 && Number(amount) > smartInsights.remainingDailyQuota && (
+                    <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 pt-0.5 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      Nominal ini melampaui sisa kuota hari ini sebesar {maskAmount(Number(amount) - smartInsights.remainingDailyQuota)}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Category */}
@@ -1266,6 +1698,66 @@ export default function DashboardClient() {
             <Button type="submit" className="w-full">
               Simpan & Catat Transaksi
             </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Atur Batas Wajar Harian */}
+      <Dialog open={isCustomLimitDialogOpen} onOpenChange={setIsCustomLimitDialogOpen}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <Sun className="h-5 w-5 text-amber-500" />
+              <span>Atur Batas Wajar Harian</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Tentukan kuota belanja harian Anda sendiri atau gunakan rekomendasi otomatis berdasarkan alokasi saldo 6 bulan.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveCustomDailyLimit} className="space-y-4 pt-2">
+            {/* Auto Recommendation Box */}
+            <div className="p-3 rounded-lg border bg-muted/40 space-y-1.5 text-xs">
+              <div className="flex items-center justify-between font-semibold text-foreground">
+                <span>Rekomendasi Otomatis:</span>
+                <span className="text-primary font-bold">{maskAmount(smartInsights.autoDailyLimit)} /hari</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Dihitung dari batas wajar bulanan ({maskAmount(smartInsights.safeMonthlyLimit)}) dibagi {smartInsights.totalDaysInMonth} hari bulan ini.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs sm:text-sm font-medium">Batas Harian Kustom (Rp)</Label>
+              <Input
+                type="number"
+                min="1000"
+                step="1000"
+                value={tempCustomDailyLimit}
+                onChange={(e) => setTempCustomDailyLimit(e.target.value)}
+                placeholder={`Contoh: ${smartInsights.autoDailyLimit > 0 ? smartInsights.autoDailyLimit : 50000}`}
+                required
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Masukkan nominal target batas maksimal belanja per hari yang Anda inginkan.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-2 pt-2">
+              <Button type="submit" className="w-full sm:flex-1">
+                Simpan Batas Kustom
+              </Button>
+              {customDailyLimit > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleResetToAutoDailyLimit}
+                  className="w-full sm:w-auto text-xs"
+                >
+                  Reset ke Otomatis
+                </Button>
+              )}
+            </div>
           </form>
         </DialogContent>
       </Dialog>

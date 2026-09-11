@@ -25,7 +25,9 @@ import {
   ScanBarcode,
   PackagePlus,
   Barcode,
-  Receipt
+  Receipt,
+  Sun,
+  AlertTriangle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -82,6 +84,52 @@ export default function TransactionsClient() {
   const filteredCategories = categories.filter(c => c.type === type);
   const editFilteredCategories = categories.filter(c => c.type === editType);
   const expenseCategories = categories.filter(c => c.type === 'Expense');
+
+  // Daily Fair Limit & Quota Computation
+  const dailyLimitMetrics = useMemo(() => {
+    let balance = 0;
+    const todayStr = getLocalDateString();
+    let todayExpense = 0;
+
+    transactions.forEach(tx => {
+      const amt = Number(tx.amount) || 0;
+      if (tx.type === 'Income') balance += amt;
+      if (tx.type === 'Expense') balance -= amt;
+
+      const txDate = (tx.transaction_date || '').slice(0, 10);
+      if (tx.type === 'Expense' && txDate === todayStr) {
+        todayExpense += amt;
+      }
+    });
+
+    const now = new Date();
+    const currYear = now.getFullYear();
+    const currMonth = now.getMonth();
+    const totalDaysInMonth = new Date(currYear, currMonth + 1, 0).getDate();
+
+    const safeMonthly = balance > 0 ? Math.floor(balance / 6) : 0;
+    const autoDaily = safeMonthly > 0 ? Math.floor(safeMonthly / totalDaysInMonth) : 0;
+
+    let customDaily = 0;
+    try {
+      const saved = localStorage.getItem('fintrack_custom_daily_limit');
+      if (saved) {
+        const val = Number(saved);
+        if (!isNaN(val) && val > 0) customDaily = val;
+      }
+    } catch {}
+
+    const safeDaily = customDaily > 0 ? customDaily : autoDaily;
+    const remainingDailyQuota = Math.max(0, safeDaily - todayExpense);
+
+    return {
+      todayStr,
+      todayExpense,
+      safeDaily,
+      remainingDailyQuota,
+      isCustomDaily: customDaily > 0,
+    };
+  }, [transactions]);
 
   // Handle Barcode Scan Result
   const handleBarcodeDetected = async (barcode: string) => {
@@ -314,7 +362,19 @@ export default function TransactionsClient() {
         created_at: new Date().toISOString()
       });
 
-      toast.success("Transaksi berhasil ditambahkan!");
+      if (
+        type === 'Expense' &&
+        date === dailyLimitMetrics.todayStr &&
+        dailyLimitMetrics.safeDaily > 0 &&
+        (dailyLimitMetrics.todayExpense + Number(amount)) > dailyLimitMetrics.safeDaily
+      ) {
+        toast.warning(
+          `Transaksi disimpan. Peringatan: Total pengeluaran hari ini melampaui batas wajar harian (${formatCurrency(dailyLimitMetrics.safeDaily)})!`,
+          { duration: 5000 }
+        );
+      } else {
+        toast.success("Transaksi berhasil ditambahkan!");
+      }
       setIsOpen(false);
       setAmount("");
       setDescription("");
@@ -520,6 +580,35 @@ export default function TransactionsClient() {
                     required 
                     placeholder="Contoh: 50000" 
                   />
+                  {type === 'Expense' && date === dailyLimitMetrics.todayStr && dailyLimitMetrics.safeDaily > 0 && (
+                    <div className={`p-2.5 rounded-lg text-xs border space-y-1 transition-all ${
+                      Number(amount) > dailyLimitMetrics.remainingDailyQuota && dailyLimitMetrics.remainingDailyQuota > 0
+                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400'
+                        : Number(amount) > dailyLimitMetrics.safeDaily
+                        ? 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-400'
+                        : 'bg-muted/40 border-border/50 text-muted-foreground'
+                    }`}>
+                      <div className="flex items-center justify-between font-medium">
+                        <span className="flex items-center gap-1">
+                          <Sun className="h-3.5 w-3.5 text-amber-500" />
+                          Batas Wajar Hari Ini:
+                        </span>
+                        <span className="text-foreground font-semibold">{formatCurrency(dailyLimitMetrics.safeDaily)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span>Sisa Kuota Hari Ini:</span>
+                        <span className={`font-semibold ${dailyLimitMetrics.remainingDailyQuota <= 0 ? 'text-rose-500' : 'text-foreground'}`}>
+                          {formatCurrency(dailyLimitMetrics.remainingDailyQuota)}
+                        </span>
+                      </div>
+                      {Number(amount) > 0 && Number(amount) > dailyLimitMetrics.remainingDailyQuota && (
+                        <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 pt-0.5 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                          Nominal ini melampaui sisa kuota hari ini sebesar {formatCurrency(Number(amount) - dailyLimitMetrics.remainingDailyQuota)}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
